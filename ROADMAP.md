@@ -1,20 +1,20 @@
-# Roadmap
+# 路线图
 
-## Phase 1 — Project Foundation
+## 阶段 1 — 项目基础
 
-Goal: establish architecture, CLI, interfaces, and storage.
+目标:建立架构、CLI、接口和存储。
 
-Deliverables:
+交付物:
 
-- TypeScript project setup
+- TypeScript 项目搭建
 - Commander.js CLI
-- ESM configuration
-- Runtime interfaces
-- `.auto-e2e/` storage service
-- init command
-- doctor command
+- ESM 配置
+- Runtime 接口
+- `.auto-e2e/` 存储服务
+- init 命令
+- doctor 命令
 
-Commands:
+命令:
 
 ```bash
 auto-e2e init
@@ -23,21 +23,21 @@ auto-e2e doctor
 
 ---
 
-## Phase 2 — Scanner
+## 阶段 2 — Scanner
 
-Goal: discover project structure.
+目标:发现项目结构。
 
-Deliverables:
+交付物:
 
-- package manager detection
-- framework detection
-- route scanning
-- data-testid scanning
+- 包管理器检测
+- 框架检测
+- 路由扫描
+- data-testid 扫描
 - app-map.json
 - selector-map.json
 - codex-context.md
 
-Command:
+命令:
 
 ```bash
 auto-e2e scan
@@ -45,19 +45,19 @@ auto-e2e scan
 
 ---
 
-## Phase 3 — Environment
+## 阶段 3 — Environment
 
-Goal: prepare local app environment.
+目标:准备本地应用环境。
 
-Deliverables:
+交付物:
 
-- dev server start
-- readiness probe
-- port check
-- cleanup
-- storageState placeholder
+- dev server 启动
+- 就绪探针
+- 端口检查
+- 清理
+- storageState 占位
 
-Command:
+命令:
 
 ```bash
 auto-e2e prepare
@@ -65,21 +65,21 @@ auto-e2e prepare
 
 ---
 
-## Phase 4 — Observer
+## 阶段 4 — Observer
 
-Goal: make browser pages visible to Agents through structured output.
+目标:通过结构化输出让浏览器页面对 Agent 可见。
 
-Deliverables:
+交付物:
 
-- observe URL
-- screenshot
-- DOM snapshot
-- console capture
-- network capture
-- element extraction
-- recommended selector generation
+- 观察 URL
+- 截图
+- DOM 快照
+- 控制台采集
+- 网络采集
+- 元素提取
+- 推荐选择器生成
 
-Command:
+命令:
 
 ```bash
 auto-e2e observe --url /login
@@ -87,18 +87,18 @@ auto-e2e observe --url /login
 
 ---
 
-## Phase 5 — Executor
+## 阶段 5 — Executor
 
-Goal: run Playwright through Runtime.
+目标:通过 Runtime 运行 Playwright。
 
-Deliverables:
+交付物:
 
-- run all specs
-- run specific spec
-- collect JSON report
-- collect trace/screenshot/video refs
+- 运行全部 specs
+- 运行指定 spec
+- 收集 JSON 报告
+- 收集 trace/截图/视频引用
 
-Commands:
+命令:
 
 ```bash
 auto-e2e run
@@ -107,19 +107,19 @@ auto-e2e run --spec e2e/specs/login.spec.ts
 
 ---
 
-## Phase 6 — Feedback
+## 阶段 6 — Feedback
 
-Goal: turn execution results into Agent-readable feedback.
+目标:把执行结果转换为 Agent 可读的反馈。
 
-Deliverables:
+交付物:
 
 - run-result.json
 - failure-summary.md
-- failed test extraction
-- artifact path extraction
-- console/network error summary
+- 失败测试提取
+- 产物路径提取
+- 控制台/网络错误摘要
 
-Command:
+命令:
 
 ```bash
 auto-e2e report
@@ -127,29 +127,29 @@ auto-e2e report
 
 ---
 
-## Phase 7 — Stabilization
+## 阶段 7 — 稳定化
 
-Goal: improve reliability and developer experience.
+目标:提升可靠性和开发体验。
 
-Deliverables:
+交付物:
 
-- tests for each module
-- documentation updates
-- example projects
-- CI workflow
-- npm package publishing setup
+- 各模块的测试
+- 文档更新
+- 示例项目
+- CI 工作流
+- npm 包发布设置
 
 ---
 
-## Phase 8 — Advanced Runtime
+## 阶段 8 — 高级 Runtime
 
-Possible future capabilities:
+未来可能的能力:
 
-- Docker environment provider
-- Remote browser provider
-- MCP server mode
-- accessibility testing
-- visual regression
-- network mocking
-- test data fixtures
-- CI summary reporter
+- Docker 环境的 provider
+- 远程浏览器 provider
+- MCP 服务器模式
+- 无障碍测试
+- 视觉回归
+- 网络 mock
+- 测试数据 fixtures
+- CI 摘要报告器

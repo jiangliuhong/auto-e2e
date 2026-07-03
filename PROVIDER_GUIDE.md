@@ -1,35 +1,35 @@
-# Provider Guide
+# Provider 指南
 
-auto-e2e should be provider-based.
+auto-e2e 应当基于 provider。
 
-Providers allow the Runtime to evolve without rewriting core logic.
+Provider 让 Runtime 能够在不重写核心逻辑的情况下演进。
 
 ---
 
-## Provider Principles
+## Provider 原则
 
-- Providers implement interfaces.
-- Runtime depends on abstractions, not implementations.
-- Providers must be replaceable.
-- Providers must not call the CLI.
-- Providers must not perform AI reasoning.
+- Provider 实现接口。
+- Runtime 依赖抽象,而非实现。
+- Provider 必须可替换。
+- Provider 不得调用 CLI。
+- Provider 不得执行 AI 推理。
 
 ---
 
 ## BrowserProvider
 
-Responsible for browser-level operations.
+负责浏览器级操作。
 
-Initial implementation:
+初始实现:
 
 - PlaywrightBrowserProvider
 
-Future implementations:
+未来实现:
 
 - RemoteBrowserProvider
 - ChromeDevToolsProvider
 
-Suggested interface:
+建议接口:
 
 ```ts
 export interface BrowserProvider {
@@ -42,18 +42,18 @@ export interface BrowserProvider {
 
 ## EnvironmentProvider
 
-Responsible for application environment lifecycle.
+负责应用环境的生命周期。
 
-Initial implementation:
+初始实现:
 
 - LocalNodeEnvironmentProvider
 
-Future implementations:
+未来实现:
 
 - DockerEnvironmentProvider
 - RemoteEnvironmentProvider
 
-Suggested interface:
+建议接口:
 
 ```ts
 export interface EnvironmentProvider {
@@ -67,19 +67,19 @@ export interface EnvironmentProvider {
 
 ## ReportProvider
 
-Responsible for reading and writing reports.
+负责报告的读写。
 
-Initial implementations:
+初始实现:
 
 - JsonReportProvider
 - MarkdownReportProvider
 
-Future implementations:
+未来实现:
 
 - JUnitReportProvider
 - HtmlReportProvider
 
-Suggested interface:
+建议接口:
 
 ```ts
 export interface ReportProvider {
@@ -92,15 +92,15 @@ export interface ReportProvider {
 
 ## ScannerProvider
 
-Responsible for framework-specific project scanning.
+负责框架特定的项目扫描。
 
-Initial implementations:
+初始实现:
 
 - NextScannerProvider
 - ReactViteScannerProvider
 - VueViteScannerProvider
 
-Suggested interface:
+建议接口:
 
 ```ts
 export interface ScannerProvider {
@@ -113,38 +113,38 @@ export interface ScannerProvider {
 
 ## SelectorProvider
 
-Responsible for extracting and recommending selectors.
+负责提取和推荐选择器。
 
-Initial implementation:
+初始实现:
 
 - StaticSelectorProvider
 - PlaywrightSelectorProvider
 
-Recommended selector priority:
+推荐的选择器优先级:
 
 1. role
 2. label
 3. placeholder
 4. data-testid
-5. stable text
-6. CSS fallback
+5. 稳定的文本
+6. CSS 兜底
 
-Avoid recommending:
+避免推荐:
 
 - nth-child
-- generated class names
-- long CSS chains
+- 生成的类名
+- 过长的 CSS 链
 
 ---
 
-## Adding a New Provider
+## 添加新 Provider
 
-When adding a provider:
+添加 provider 时:
 
-1. Define or reuse an interface.
-2. Implement the provider in its own folder.
-3. Add unit tests.
-4. Register it through provider configuration.
-5. Update this document if the provider introduces a new contract.
+1. 定义或复用一个接口。
+2. 在各自的文件夹中实现该 provider。
+3. 添加单元测试。
+4. 通过 provider 配置进行注册。
+5. 如果该 provider 引入了新的契约,更新本文档。
 
-Never modify Runtime core to hardcode a provider.
+绝不要修改 Runtime 核心来硬编码某个 provider。

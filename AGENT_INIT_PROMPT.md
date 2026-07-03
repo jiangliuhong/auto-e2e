@@ -1,68 +1,68 @@
 # AGENT_INIT_PROMPT.md
 
-# Project Goal
+# 项目目标
 
-Build **auto-e2e**, an **Agent Runtime for Playwright**.
+构建 **auto-e2e**,一个**面向 Playwright 的 Agent Runtime**。
 
-This project is not tied to any specific Coding Agent.
+本项目不绑定到任何特定的编码 Agent。
 
-It should work well with:
+它应当能良好地与以下工具配合:
 
 * Codex
 * Claude Code
 * Cursor
 * OpenCode
 * GitHub Copilot Coding Agent
-* Any future Coding Agent
+* 任何未来的编码 Agent
 
-The Runtime should provide a stable, deterministic, structured environment for browser E2E automation.
-
----
-
-# Core Concept
-
-The external Coding Agent is responsible for reasoning.
-
-The Runtime is responsible for:
-
-* Environment
-* Observation
-* Execution
-* Feedback
-* Storage
-
-The Runtime must never depend on a specific LLM provider or Coding Agent.
+Runtime 应当为浏览器 E2E 自动化提供一个稳定、确定、结构化的环境。
 
 ---
 
-# What This Project Is
+# 核心概念
 
-auto-e2e is:
+外部编码 Agent 负责推理。
 
-* A Playwright Runtime
-* A browser observation framework
-* A structured E2E execution layer
-* A machine-readable feedback generator
-* A tool that helps Coding Agents write, run, and fix E2E tests
+Runtime 负责:
 
----
+* Environment(环境)
+* Observation(观察)
+* Execution(执行)
+* Feedback(反馈)
+* Storage(存储)
 
-# What This Project Is Not
-
-auto-e2e is not:
-
-* An AI Agent
-* A test generation model
-* A Codex-only tool
-* A Claude-only tool
-* A wrapper around one specific assistant
-* A tool that calls OpenAI, Anthropic, or any LLM by default
+Runtime 绝不能依赖于特定的 LLM provider 或编码 Agent。
 
 ---
 
-# Required Tech Stack
+# 本项目是什么
 
-Use:
+auto-e2e 是:
+
+* 一个 Playwright Runtime
+* 一个浏览器观察框架
+* 一个结构化的 E2E 执行层
+* 一个机器可读的反馈生成器
+* 一个帮助编码 Agent 编写、运行和修复 E2E 测试的工具
+
+---
+
+# 本项目不是什么
+
+auto-e2e 不是:
+
+* 一个 AI Agent
+* 一个测试生成模型
+* 一个仅针对 Codex 的工具
+* 一个仅针对 Claude 的工具
+* 一个围绕某个特定助手的封装
+* 一个默认调用 OpenAI、Anthropic 或任何 LLM 的工具
+
+---
+
+# 要求的技术栈
+
+使用:
 
 * Node.js >= 20
 * TypeScript
@@ -77,11 +77,11 @@ Use:
 
 ---
 
-# Architecture
+# 架构
 
-Use a Runtime-first architecture.
+采用 Runtime 优先的架构。
 
-Suggested structure:
+建议结构:
 
 ```text
 src/
@@ -99,65 +99,65 @@ src/
   utils/
 ```
 
-CLI must only call Runtime APIs.
+CLI 只能调用 Runtime API。
 
-Do not put business logic in CLI commands.
+不要把业务逻辑放进 CLI 命令中。
 
 ---
 
-# Runtime Modules
+# Runtime 模块
 
 ## Environment
 
-Responsible for:
+负责:
 
-* Starting app
-* Stopping app
-* Restarting app
-* Waiting for app readiness
-* Health checks
-* Storage state
-* Fixtures
+* 启动应用
+* 停止应用
+* 重启应用
+* 等待应用就绪
+* 健康检查
+* 存储状态
+* fixtures
 
 ## Observer
 
-Responsible for:
+负责:
 
-* Opening pages
-* Collecting DOM snapshot
-* Collecting accessibility tree
-* Collecting title and URL
-* Collecting buttons, inputs, links, tables, dialogs
-* Collecting console messages
-* Collecting network requests
-* Taking screenshots
-* Recommending selectors
+* 打开页面
+* 收集 DOM 快照
+* 收集无障碍树
+* 收集标题和 URL
+* 收集按钮、输入框、链接、表格、对话框
+* 收集控制台消息
+* 收集网络请求
+* 截图
+* 推荐选择器
 
-Observer must not execute test assertions.
+Observer 不得执行测试断言。
 
 ## Executor
 
-Responsible for:
+负责:
 
-* Running Playwright tests
-* Running all tests
-* Running one spec
-* Running by tag or suite
-* Collecting trace, screenshot, video, HTML report, JSON report
+* 运行 Playwright 测试
+* 运行全部测试
+* 运行单个 spec
+* 按标签或套件运行
+* 收集 trace、screenshot、video、HTML 报告、JSON 报告
 
 ## Feedback
 
-Responsible for:
+负责:
 
-* Parsing Playwright results
-* Producing structured failure reports
-* Producing Markdown summaries
-* Extracting likely failure causes
-* Linking screenshots and traces
+* 解析 Playwright 结果
+* 生成结构化失败报告
+* 生成 Markdown 摘要
+* 提取可能的失败原因
+* 关联截图和 trace
 
 ## Storage
 
-Responsible for all Runtime state under:
+负责所有 Runtime 状态,位于:
 
 ```text
 .auto-e2e/
@@ -165,9 +165,9 @@ Responsible for all Runtime state under:
 
 ---
 
-# CLI Commands
+# CLI 命令
 
-Implement these commands first:
+优先实现以下命令:
 
 ```bash
 auto-e2e init
@@ -182,15 +182,15 @@ auto-e2e doctor
 
 ---
 
-# Runtime Outputs
+# Runtime 输出
 
-All generated Runtime files must be stored under:
+所有生成的 Runtime 文件必须存放在:
 
 ```text
 .auto-e2e/
 ```
 
-Expected files:
+预期文件:
 
 ```text
 .auto-e2e/
@@ -205,128 +205,128 @@ Expected files:
   history/
 ```
 
-Prefer `agent-context.md` as the generic context file.
+优先使用 `agent-context.md` 作为通用上下文文件。
 
-`codex-context.md` can be kept only as a backward-compatible alias.
+`codex-context.md` 可以仅作为向后兼容的别名保留。
 
 ---
 
-# Agent Compatibility Rules
+# Agent 兼容性规则
 
-The Runtime should output information in formats that any Coding Agent can read:
+Runtime 应当以任何编码 Agent 都能读取的格式输出信息:
 
 * JSON
 * Markdown
-* plain text logs
+* 纯文本日志
 
-Avoid formats that require a specific platform.
+避免使用依赖特定平台的格式。
 
-Do not assume the Agent has access to browser UI.
+不要假设 Agent 能访问浏览器 UI。
 
-Do not assume the Agent can inspect screenshots visually.
+不要假设 Agent 能以视觉方式检查截图。
 
-Always provide structured text data when possible.
+尽可能提供结构化的文本数据。
 
 ---
 
-# Development Phases
+# 开发阶段
 
-## Phase 1
+## 阶段 1
 
-* Project setup
-* CLI skeleton
-* Runtime interfaces
-* Storage layout
-* Basic docs
+* 项目搭建
+* CLI 骨架
+* Runtime 接口
+* 存储布局
+* 基础文档
 
-## Phase 2
+## 阶段 2
 
-* Environment implementation
-* Scanner implementation
-* Config loading
-* Project detection
+* Environment 实现
+* Scanner 实现
+* 配置加载
+* 项目检测
 
-## Phase 3
+## 阶段 3
 
-* Observer implementation
-* DOM snapshot
-* Accessibility snapshot
-* Console collection
-* Network collection
-* Screenshot capture
-* Selector recommendation
+* Observer 实现
+* DOM 快照
+* 无障碍快照
+* 控制台收集
+* 网络收集
+* 截图采集
+* 选择器推荐
 
-## Phase 4
+## 阶段 4
 
-* Executor implementation
-* Playwright runner integration
-* JSON report parsing
-* Artifact collection
+* Executor 实现
+* Playwright runner 集成
+* JSON 报告解析
+* 产物收集
 
-## Phase 5
+## 阶段 5
 
-* Feedback implementation
+* Feedback 实现
 * failure-summary.md
 * run-result.json
-* Agent-friendly suggestions
+* 面向 Agent 的建议
 
-## Phase 6
+## 阶段 6
 
-* Tests
-* Examples
-* Documentation
-* Provider extension guide
-
----
-
-# Coding Rules
-
-Use strict TypeScript.
-
-Avoid `any`.
-
-Prefer interfaces.
-
-Keep modules small.
-
-Do not create large files.
-
-Use dependency injection where helpful.
-
-Program against abstractions, not concrete implementations.
-
-Do not hardcode Playwright throughout the Runtime.
+* 测试
+* 示例
+* 文档
+* Provider 扩展指南
 
 ---
 
-# Testing Rules
+# 编码规则
 
-Add tests for each module.
+使用严格模式的 TypeScript。
 
-Prefer deterministic tests.
+避免 `any`。
 
-Avoid arbitrary sleeps.
+优先使用接口。
 
-Avoid flaky browser tests.
+保持模块小型化。
 
-Keep unit tests separate from E2E tests.
+不要创建大文件。
+
+在有帮助的地方使用依赖注入。
+
+面向抽象编程,而非具体实现。
+
+不要在整个 Runtime 中硬编码 Playwright。
 
 ---
 
-# Important Design Constraint
+# 测试规则
 
-This Runtime must remain independent from all specific AI tools.
+为每个模块添加测试。
 
-Do not name Codex, Claude, Cursor, or OpenCode in implementation-level APIs unless the feature is explicitly a compatibility adapter.
+优先使用确定性测试。
 
-Use generic names:
+避免任意的 sleep。
+
+避免不稳定的浏览器测试。
+
+将单元测试与 E2E 测试分开。
+
+---
+
+# 重要设计约束
+
+本 Runtime 必须保持独立于所有特定的 AI 工具。
+
+不要在实现层 API 中出现 Codex、Claude、Cursor 或 OpenCode 的名称,除非该功能明确是兼容性适配器。
+
+使用通用名称:
 
 * `agentContext`
 * `agentPrompt`
 * `agentReport`
 * `runtimeResult`
 
-Avoid tool-specific names:
+避免工具专有名称:
 
 * `codexContext`
 * `claudeContext`
@@ -334,14 +334,14 @@ Avoid tool-specific names:
 
 ---
 
-# Final Goal
+# 最终目标
 
-Build a long-term maintainable **Agent Runtime for E2E testing**.
+构建一个长期可维护的**面向 E2E 测试的 Agent Runtime**。
 
-The Runtime should make browser automation easier for any Coding Agent by providing:
+Runtime 应当通过提供以下能力,让任何编码 Agent 都更容易进行浏览器自动化:
 
-* Stable environment control
-* Rich page observation
-* Deterministic test execution
-* Structured feedback
-* Persistent runtime state
+* 稳定的环境控制
+* 丰富的页面观察
+* 确定性的测试执行
+* 结构化的反馈
+* 持久化的运行时状态

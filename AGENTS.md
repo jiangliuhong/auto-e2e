@@ -1,162 +1,162 @@
-# Auto E2E Development Rules
+# Auto E2E 开发规则
 
-This repository is designed for Coding Agents.
+本仓库专为编码 Agent 设计。
 
-Before making any change, read this document completely.
-
----
-
-## Project Goal
-
-Build an Agent Runtime for Playwright.
-
-The Runtime is responsible for:
-
-- Environment
-- Observation
-- Execution
-- Feedback
-
-The Runtime is not responsible for AI reasoning.
+在做任何修改之前,请完整阅读本文档。
 
 ---
 
-## Development Workflow
+## 项目目标
 
-Always follow this workflow:
+为 Playwright 构建一个 Agent Runtime。
 
-1. Understand the current architecture.
-2. Keep module boundaries clear.
-3. Implement one capability at a time.
-4. Add tests.
-5. Update documentation.
+Runtime 负责:
 
-Do not mix multiple unrelated changes into one task.
+- Environment(环境)
+- Observation(观察)
+- Execution(执行)
+- Feedback(反馈)
 
----
-
-## Architecture Rules
-
-- Never bypass Runtime.
-- Never place business logic inside CLI.
-- Never tightly couple modules.
-- Always program against interfaces.
-- Prefer dependency injection.
-- Providers must be replaceable.
+Runtime 不负责 AI 推理。
 
 ---
 
-## Directory Rules
+## 开发流程
 
-CLI code belongs in:
+始终遵循以下流程:
+
+1. 理解当前架构。
+2. 保持模块边界清晰。
+3. 一次只实现一个能力。
+4. 添加测试。
+5. 更新文档。
+
+不要把多个无关的改动混在一个任务里。
+
+---
+
+## 架构规则
+
+- 永远不要绕过 Runtime。
+- 永远不要把业务逻辑放进 CLI。
+- 永远不要让模块之间紧耦合。
+- 始终面向接口编程。
+- 优先使用依赖注入。
+- Provider 必须可替换。
+
+---
+
+## 目录规则
+
+CLI 代码位于:
 
 ```text
 src/cli
 ```
 
-Runtime belongs in:
+Runtime 位于:
 
 ```text
 src/runtime
 ```
 
-Shared models:
+共享模型:
 
 ```text
 src/core
 ```
 
-Utilities:
+工具:
 
 ```text
 src/utils
 ```
 
-Playwright integration:
+Playwright 集成:
 
 ```text
 src/playwright
 ```
 
-Project scanning:
+项目扫描:
 
 ```text
 src/scanner
 ```
 
-Reporting:
+报告:
 
 ```text
 src/reporter
 ```
 
-Do not create large miscellaneous folders.
+不要创建大型杂项目录。
 
 ---
 
-## Runtime Rules
+## Runtime 规则
 
-- Environment manages environment only.
-- Observer observes only.
-- Executor executes only.
-- Feedback analyzes execution results only.
-- Storage persists runtime state only.
+- Environment 只管理环境。
+- Observer 只负责观察。
+- Executor 只负责执行。
+- Feedback 只分析执行结果。
+- Storage 只负责持久化运行时状态。
 
-Keep responsibilities isolated.
-
----
-
-## Coding Rules
-
-- Use TypeScript strict mode.
-- Avoid `any`.
-- Prefer interface over concrete implementation.
-- Use meaningful names.
-- Keep files focused.
-- Avoid deep inheritance.
-- Prefer composition.
+保持职责隔离。
 
 ---
 
-## Testing Rules
+## 编码规则
 
-- Every new feature should include tests.
-- Tests should be deterministic.
-- Avoid flaky tests.
-- Avoid unnecessary waits.
-- Prefer explicit assertions.
+- 使用 TypeScript 严格模式。
+- 避免 `any`。
+- 优先使用接口而非具体实现。
+- 使用有意义的命名。
+- 保持文件聚焦。
+- 避免深层继承。
+- 优先使用组合。
 
 ---
 
-## Playwright Rules
+## 测试规则
 
-Prefer:
+- 每个新功能都应包含测试。
+- 测试应当是确定性的。
+- 避免不稳定的测试。
+- 避免不必要的等待。
+- 优先使用显式断言。
+
+---
+
+## Playwright 规则
+
+优先使用:
 
 - `getByRole`
 - `getByLabel`
 - `getByPlaceholder`
 - `data-testid`
 
-Avoid:
+避免使用:
 
 - `nth-child`
-- generated CSS class names
-- long CSS selectors
-- arbitrary timeout values
+- 生成的 CSS 类名
+- 过长的 CSS 选择器
+- 任意的超时值
 
-Use `storageState` whenever possible.
+尽可能使用 `storageState`。
 
 ---
 
-## Runtime Outputs
+## Runtime 输出
 
-Runtime artifacts belong only in:
+Runtime 产物仅属于:
 
 ```text
 .auto-e2e/
 ```
 
-Expected outputs include:
+预期输出包括:
 
 - app-map.json
 - selector-map.json
@@ -165,46 +165,46 @@ Expected outputs include:
 - failure-summary.md
 - observations/
 
-Do not write runtime files elsewhere.
+不要把运行时文件写到其他地方。
 
 ---
 
-## Change Policy
+## 变更策略
 
-When implementing a feature:
+实现功能时:
 
-- Minimize the scope of changes.
-- Reuse existing abstractions.
-- Avoid breaking public interfaces.
-- Preserve backward compatibility when practical.
+- 尽量缩小改动范围。
+- 复用现有抽象。
+- 避免破坏公共接口。
+- 在可行时保持向后兼容。
 
-Refactor only when it clearly improves maintainability.
-
----
-
-## Agent Behaviour
-
-Before writing code:
-
-- Read `ARCHITECTURE.md`.
-- Respect module boundaries.
-- Search for existing abstractions before creating new ones.
-
-Before finishing:
-
-- Run tests.
-- Check formatting.
-- Verify TypeScript compilation.
-- Update documentation if behavior changed.
+仅在确实能提升可维护性时才进行重构。
 
 ---
 
-## Long-Term Principles
+## Agent 行为
 
-Optimize for maintainability rather than speed.
+编写代码之前:
 
-Prefer extensibility over shortcuts.
+- 阅读 `ARCHITECTURE.md`。
+- 尊重模块边界。
+- 在创建新抽象之前先搜索现有抽象。
 
-The Runtime should remain independent from any specific AI model or coding assistant.
+完成之前:
 
-Every feature should make the Runtime more reusable, observable, and deterministic.
+- 运行测试。
+- 检查格式。
+- 验证 TypeScript 编译。
+- 如果行为发生变化,更新文档。
+
+---
+
+## 长期原则
+
+优先为可维护性优化,而非为速度。
+
+优先选择可扩展性,而非捷径。
+
+Runtime 应当保持独立于任何特定的 AI 模型或编码助手。
+
+每个功能都应让 Runtime 变得更可复用、更可观察、更确定。

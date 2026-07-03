@@ -1,12 +1,12 @@
-# Runtime Specification
+# Runtime 规范
 
-This document defines the stable public contract of the auto-e2e Runtime.
+本文档定义了 auto-e2e Runtime 稳定的公共契约。
 
-The CLI may change over time, but Runtime APIs should remain stable whenever possible.
+CLI 可能会随时间变化,但 Runtime API 应尽可能保持稳定。
 
 ---
 
-## Core Runtime Interface
+## 核心 Runtime 接口
 
 ```ts
 export interface AutoE2ERuntime {
@@ -30,51 +30,51 @@ export interface AutoE2ERuntime {
 
 ## prepare()
 
-Responsible for preparing the execution environment.
+负责准备执行环境。
 
-Typical responsibilities:
+典型职责:
 
-- install or verify dependencies
-- start dev server if configured
-- wait until baseUrl is ready
-- create `.auto-e2e/`
-- initialize storage state when enabled
+- 安装或验证依赖
+- 如果已配置,则启动 dev server
+- 等待直到 baseUrl 就绪
+- 创建 `.auto-e2e/`
+- 启用时初始化存储状态
 
-The method must be idempotent.
+该方法必须是幂等的。
 
 ---
 
 ## cleanup()
 
-Responsible for stopping managed resources.
+负责停止受管的资源。
 
-Typical responsibilities:
+典型职责:
 
-- stop managed dev server
-- flush runtime logs
-- close browser context
+- 停止受管的 dev server
+- 刷新运行时日志
+- 关闭浏览器上下文
 
-The method must not delete `.auto-e2e/` history unless explicitly requested.
+除非被显式要求,该方法不得删除 `.auto-e2e/` 历史。
 
 ---
 
 ## scan()
 
-Responsible for scanning the project.
+负责扫描项目。
 
-Should produce:
+应当产出:
 
 - `.auto-e2e/app-map.json`
 - `.auto-e2e/selector-map.json`
 - `.auto-e2e/codex-context.md`
 
-Scanner must not execute application code.
+Scanner 不得执行应用代码。
 
 ---
 
 ## observe()
 
-Responsible for observing a single URL or route.
+负责观察单个 URL 或路由。
 
 ```ts
 export interface ObserveOptions {
@@ -87,7 +87,7 @@ export interface ObserveOptions {
 }
 ```
 
-Must produce structured output.
+必须产出结构化输出。
 
 ```ts
 export interface ObservationResult {
@@ -108,15 +108,15 @@ export interface ObservationResult {
 }
 ```
 
-Observation is not a test.
+观察不是测试。
 
-It must not make assertions.
+它不得做断言。
 
 ---
 
 ## run()
 
-Responsible for executing Playwright tests.
+负责执行 Playwright 测试。
 
 ```ts
 export interface RunOptions {
@@ -130,58 +130,58 @@ export interface RunOptions {
 }
 ```
 
-Must produce:
+必须产出:
 
 - `.auto-e2e/run-result.json`
-- Playwright report artifacts
-- trace references
-- screenshot references
-- video references when available
+- Playwright 报告产物
+- trace 引用
+- 截图引用
+- 在可用时提供视频引用
 
 ---
 
 ## report()
 
-Responsible for transforming raw test output into Agent-readable feedback.
+负责把原始测试输出转换为 Agent 可读的反馈。
 
-Must produce:
+必须产出:
 
 - `.auto-e2e/failure-summary.md`
 - `.auto-e2e/run-result.json`
 
-Report should include:
+报告应包括:
 
-- failed tests
-- file and line information
-- error message
-- console errors
-- network errors
-- artifact paths
-- suggested next inspection targets
+- 失败的测试
+- 文件和行号信息
+- 错误信息
+- 控制台错误
+- 网络错误
+- 产物路径
+- 建议下一步检查的目标
 
-The Runtime may provide heuristic suggestions, but must not act like an LLM.
+Runtime 可以提供启发式建议,但不得表现得像一个 LLM。
 
 ---
 
 ## doctor()
 
-Responsible for checking whether the project can run auto-e2e.
+负责检查项目是否能够运行 auto-e2e。
 
-Checks should include:
+检查应包括:
 
-- Node version
-- package manager
-- Playwright installation
-- browser installation
-- config validity
-- baseUrl reachability when configured
-- writable `.auto-e2e/`
+- Node 版本
+- 包管理器
+- Playwright 安装
+- 浏览器安装
+- 配置有效性
+- 在配置了 baseUrl 时检查其可达性
+- 可写的 `.auto-e2e/`
 
 ---
 
-## Error Model
+## 错误模型
 
-All Runtime errors should follow a stable structure.
+所有 Runtime 错误都应遵循稳定的结构。
 
 ```ts
 export interface RuntimeError {
@@ -193,6 +193,6 @@ export interface RuntimeError {
 }
 ```
 
-Avoid throwing raw errors from providers.
+避免从 provider 中抛出原始错误。
 
-Convert them into RuntimeError whenever possible.
+尽可能把它们转换为 RuntimeError。

@@ -1,12 +1,12 @@
-# Runtime Output Specification
+# Runtime 输出规范
 
-All auto-e2e Runtime outputs must be written under `.auto-e2e/`.
+所有 auto-e2e Runtime 输出都必须写入 `.auto-e2e/`。
 
-External Coding Agents should read this directory to understand project structure, observations, execution results, and feedback.
+外部编码 Agent 应当读取该目录,以了解项目结构、观察结果、执行结果和反馈。
 
 ---
 
-## Directory Layout
+## 目录布局
 
 ```text
 .auto-e2e/
@@ -34,7 +34,7 @@ External Coding Agents should read this directory to understand project structur
 
 ## app-map.json
 
-Describes discovered project structure.
+描述发现的项目结构。
 
 ```json
 {
@@ -63,7 +63,7 @@ Describes discovered project structure.
 
 ## selector-map.json
 
-Describes discovered static selectors.
+描述发现的静态选择器。
 
 ```json
 {
@@ -82,7 +82,7 @@ Describes discovered static selectors.
 
 ## observation.json
 
-Describes an observed page.
+描述一个被观察的页面。
 
 ```json
 {
@@ -112,7 +112,7 @@ Describes an observed page.
 
 ## run-result.json
 
-Describes the latest test execution.
+描述最近一次测试执行。
 
 ```json
 {
@@ -145,16 +145,16 @@ Describes the latest test execution.
 
 ## failure-summary.md
 
-Human-readable and Agent-readable failure summary.
+人类可读且 Agent 可读的失败摘要。
 
-Should include:
+应包括:
 
-- failed test name
-- source file and line
-- error message
-- relevant console errors
-- relevant network errors
-- artifact paths
-- suggested next files to inspect
+- 失败的测试名
+- 源文件和行号
+- 错误信息
+- 相关的控制台错误
+- 相关的网络错误
+- 产物路径
+- 建议接下来检查的文件
 
-Avoid vague messages.
+避免含糊不清的信息。
