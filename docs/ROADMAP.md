@@ -87,7 +87,7 @@ auto-e2e observe --url /login
 
 ---
 
-## 阶段 5 — Executor
+## 阶段 5 — Executor ✅
 
 目标:通过 Runtime 运行 Playwright。
 

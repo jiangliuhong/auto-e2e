@@ -186,7 +186,7 @@ Runtime 产物仅属于:
 
 编写代码之前:
 
-- 阅读 `ARCHITECTURE.md`。
+- 阅读 `docs/ARCHITECTURE.md`。
 - 尊重模块边界。
 - 在创建新抽象之前先搜索现有抽象。
 
