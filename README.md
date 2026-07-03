@@ -53,15 +53,16 @@ auto-e2e run --spec e2e/login.spec.ts
 
 ## 已实现的能力
 
-| 能力                 | 命令               | 状态            |
-| -------------------- | ------------------ | --------------- |
-| 项目初始化           | `auto-e2e init`    | ✅              |
-| 环境自检             | `auto-e2e doctor`  | ✅              |
-| 项目扫描             | `auto-e2e scan`    | ✅              |
-| 环境准备(dev server) | `auto-e2e prepare` | ✅              |
-| 页面观察             | `auto-e2e observe` | ⏳ 路线图阶段 4 |
-| 测试执行             | `auto-e2e run`     | ✅              |
-| 反馈报告             | `auto-e2e report`  | ⏳ 路线图阶段 6 |
+| 能力                   | 命令                | 状态            |
+| ---------------------- | ------------------- | --------------- |
+| 项目初始化             | `auto-e2e init`     | ✅              |
+| 环境自检               | `auto-e2e doctor`   | ✅              |
+| 项目扫描               | `auto-e2e scan`     | ✅              |
+| 环境准备(dev server)   | `auto-e2e prepare`  | ✅              |
+| 文本用例 → Spec 指令包 | `auto-e2e generate` | ✅              |
+| 页面观察               | `auto-e2e observe`  | ⏳ 路线图阶段 4 |
+| 测试执行               | `auto-e2e run`      | ✅              |
+| 反馈报告               | `auto-e2e report`   | ⏳ 路线图阶段 6 |
 
 ## 开发
 

@@ -7,6 +7,7 @@ import { makeInitCommand } from './commands/init.js'
 import { makeDoctorCommand } from './commands/doctor.js'
 import { makeScanCommand } from './commands/scan.js'
 import { makePrepareCommand } from './commands/prepare.js'
+import { makeGenerateCommand } from './commands/generate.js'
 import { makeRunCommand } from './commands/run.js'
 import { printRuntimeError } from './output.js'
 import { toRuntimeError } from '../utils/errors.js'
@@ -22,6 +23,7 @@ function createProgram(): Command {
   program.addCommand(makeDoctorCommand())
   program.addCommand(makeScanCommand())
   program.addCommand(makePrepareCommand())
+  program.addCommand(makeGenerateCommand())
   program.addCommand(makeRunCommand())
 
   return program

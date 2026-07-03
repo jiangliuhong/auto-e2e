@@ -90,3 +90,14 @@ export interface DoctorResult {
   ok: boolean
   checks: DoctorCheck[]
 }
+
+export interface GenerateResult {
+  ok: boolean
+  /** 生成的指令包绝对路径。 */
+  briefPath?: string
+  /** 建议外部 Agent 写入 spec 的绝对路径。 */
+  suggestedSpecPath?: string
+  /** 是否因缺失 scan 产物而自动触发了 scan。 */
+  scanTriggered?: boolean
+  errors: RuntimeError[]
+}

@@ -29,7 +29,7 @@ pnpm add -g auto-e2e
 
 ## 总览:完整工作流
 
-一个典型周期是这五步:
+一个典型周期是这五步(从文本用例出发时,在 `prepare` 与 `run` 之间加一步 `generate`):
 
 ```text
 1. init      → 初始化 .auto-e2e/ 与 config.json
@@ -38,6 +38,8 @@ pnpm add -g auto-e2e
 4. prepare   → 启动 dev server 并等待就绪
 5. run       → 执行 Playwright 测试,产出 run-result.json
 ```
+
+> 如果你手里是一条**文本用例**而非现成的 spec,可用 `auto-e2e generate` 把它转成「Spec 生成指令包」,交给编码 Agent 编写标准 spec 后再 `run`。详见下文「从文本用例生成 Spec 指令包」。
 
 对应的命令串起来就是:
 
@@ -63,10 +65,10 @@ auto-e2e init
 - 写入默认 `.auto-e2e/config.json`。
 - **幂等**:已存在 `config.json` 时默认**不会覆盖**(保留你的自定义配置)。
 
-| 选项        | 说明                                   | 默认           |
-| ----------- | -------------------------------------- | -------------- |
-| `--root <path>` | 项目根目录                         | 当前工作目录   |
-| `--force`   | 覆盖已存在的 `config.json`             | `false`        |
+| 选项            | 说明                       | 默认         |
+| --------------- | -------------------------- | ------------ |
+| `--root <path>` | 项目根目录                 | 当前工作目录 |
+| `--force`       | 覆盖已存在的 `config.json` | `false`      |
 
 示例:
 
@@ -87,14 +89,14 @@ auto-e2e init --root ./my-app --force
 
 可配置字段(均可选):
 
-| 字段                | 类型                                          | 说明                              |
-| ------------------- | --------------------------------------------- | --------------------------------- |
-| `baseUrl`           | string (URL)                                  | dev server 探测地址               |
-| `devCommand`        | string                                        | 启动 dev server 的命令            |
-| `playwrightConfig`  | string                                        | Playwright 配置文件路径           |
-| `browser`           | `chromium` \| `firefox` \| `webkit`           | 默认浏览器                        |
-| `viewport`          | `{ width, height }`                           | 视口尺寸                          |
-| `storageState`      | string                                        | 复用的 storageState 文件路径      |
+| 字段               | 类型                                | 说明                         |
+| ------------------ | ----------------------------------- | ---------------------------- |
+| `baseUrl`          | string (URL)                        | dev server 探测地址          |
+| `devCommand`       | string                              | 启动 dev server 的命令       |
+| `playwrightConfig` | string                              | Playwright 配置文件路径      |
+| `browser`          | `chromium` \| `firefox` \| `webkit` | 默认浏览器                   |
+| `viewport`         | `{ width, height }`                 | 视口尺寸                     |
+| `storageState`     | string                              | 复用的 storageState 文件路径 |
 
 ---
 
@@ -106,10 +108,10 @@ auto-e2e doctor
 
 检查 Node、包管理器、Playwright、浏览器、`baseUrl` 可达性等条件,逐项输出 ✓ / ✗。
 
-| 选项                   | 说明                          | 默认 |
-| ---------------------- | ----------------------------- | ---- |
-| `--root <path>`        | 项目根目录                    | cwd  |
-| `--skip-reachability`  | 跳过 `baseUrl` 可达性检查     | `false` |
+| 选项                  | 说明                      | 默认    |
+| --------------------- | ------------------------- | ------- |
+| `--root <path>`       | 项目根目录                | cwd     |
+| `--skip-reachability` | 跳过 `baseUrl` 可达性检查 | `false` |
 
 退出码:`0` 全部通过,`1` 有失败项。建议在 `prepare` / `run` 之前先跑一次 `doctor`,及早暴露缺失的依赖。
 
@@ -123,17 +125,17 @@ auto-e2e scan
 
 扫描项目结构并产出三类文件(写入 `.auto-e2e/`):
 
-| 产物                  | 内容                                                             |
-| --------------------- | ---------------------------------------------------------------- |
-| `app-map.json`        | 框架、包管理器、scripts、路由、API 路由、Playwright 配置信息      |
-| `selector-map.json`   | 静态选择器(主要是 `data-testid`),含置信度                      |
-| `agent-context.md`    | 上述内容的人类/Agent 可读摘要(供编写用例时参考)                |
+| 产物                | 内容                                                         |
+| ------------------- | ------------------------------------------------------------ |
+| `app-map.json`      | 框架、包管理器、scripts、路由、API 路由、Playwright 配置信息 |
+| `selector-map.json` | 静态选择器(主要是 `data-testid`),含置信度                    |
+| `agent-context.md`  | 上述内容的人类/Agent 可读摘要(供编写用例时参考)              |
 
 > 同时生成 `codex-context.md`(内容相同,向后兼容别名)。
 
-| 选项            | 说明         | 默认 |
-| --------------- | ------------ | ---- |
-| `--root <path>` | 项目根目录   | cwd  |
+| 选项            | 说明       | 默认 |
+| --------------- | ---------- | ---- |
+| `--root <path>` | 项目根目录 | cwd  |
 
 **这一步对「创建测试用例」至关重要**:`selector-map.json` 告诉你哪些 `data-testid` 可用,`app-map.json` 告诉你有哪些路由可以测。详见下文「创建测试用例」。
 
@@ -147,13 +149,13 @@ auto-e2e prepare
 
 启动 dev server 并轮询 `baseUrl` 直到就绪,同时创建 `storageState` 占位文件。
 
-| 选项                   | 说明                                   | 默认     |
-| ---------------------- | -------------------------------------- | -------- |
-| `--root <path>`        | 项目根目录                             | cwd      |
-| `--base-url <url>`     | 覆盖 `config.baseUrl` 进行就绪探测     | —        |
-| `--dev-command <cmd>`  | 覆盖 `config.devCommand`               | —        |
-| `--timeout <ms>`       | 就绪探测超时(毫秒)                    | 内置默认 |
-| `--cleanup`            | 停止受管的 dev server 后退出           | `false`  |
+| 选项                  | 说明                               | 默认     |
+| --------------------- | ---------------------------------- | -------- |
+| `--root <path>`       | 项目根目录                         | cwd      |
+| `--base-url <url>`    | 覆盖 `config.baseUrl` 进行就绪探测 | —        |
+| `--dev-command <cmd>` | 覆盖 `config.devCommand`           | —        |
+| `--timeout <ms>`      | 就绪探测超时(毫秒)                 | 内置默认 |
+| `--cleanup`           | 停止受管的 dev server 后退出       | `false`  |
 
 示例:
 
@@ -163,6 +165,55 @@ auto-e2e prepare --dev-command "npm run dev" --base-url http://localhost:8080 --
 
 # 测完停止受管的 dev server
 auto-e2e prepare --cleanup
+```
+
+---
+
+## 从文本用例生成 Spec 指令包
+
+如果你手里有一条**文本用例**(自然语言描述,例如「用户登录后应跳转到 /dashboard」),`auto-e2e generate` 可以把它转换成一份**「Spec 生成指令包」**,供编码 Agent 据此编写标准 Playwright spec。
+
+> auto-e2e 是 Runtime,**不做推理、不调用 LLM**。`generate` 只负责把你的文本用例 + 项目上下文(来自 `scan` 的路由/选择器)+ Playwright 编写规范**结构化打包**成 Markdown;spec 代码由编码 Agent(或你自己)依据指令包编写,之后用 `auto-e2e run --spec` 执行。
+
+### 用法
+
+```bash
+# 文本内联
+auto-e2e generate --name login --case "用户用 demo/demo1234 登录,应跳转到 /dashboard"
+
+# 文本来自文件(适合长用例)
+auto-e2e generate --name checkout --case-file docs/cases/checkout.md
+
+# 指定 spec 输出目录 / 覆盖已有指令包
+auto-e2e generate --name login --case "..." --spec-dir e2e/specs --force
+```
+
+| 选项                 | 说明                                              | 默认                              |
+| -------------------- | ------------------------------------------------- | --------------------------------- |
+| `--name <name>`      | 用例名称(必填),同时作为指令包文件名与建议 spec 名 | —                                 |
+| `--case <text>`      | 文本用例内容(与 `--case-file` 二选一)             | —                                 |
+| `--case-file <file>` | 文本用例文件路径(与 `--case` 二选一)              | —                                 |
+| `--spec-dir <dir>`   | 覆盖建议的 spec 输出目录                          | `app-map` 的 `testDir`,回退 `e2e` |
+| `--root <path>`      | 项目根目录                                        | cwd                               |
+| `--force`            | 覆盖已存在的指令包                                | `false`                           |
+
+执行后会输出:
+
+```text
+✓ 指令包已生成:login
+agent-brief: /path/.auto-e2e/spec-briefs/login.md
+建议 spec 路径: /path/e2e/login.spec.ts
+下一步: 由编码 Agent 依据指令包编写 spec,再执行 `auto-e2e run --spec /path/e2e/login.spec.ts`
+```
+
+产物:`.auto-e2e/spec-briefs/<name>.md`(详见 [`OUTPUT_SPEC.md`](./OUTPUT_SPEC.md))。若尚未执行 `scan`,`generate` 会**自动触发一次 scan** 以补充路由/选择器上下文。
+
+### 从文本用例到执行的完整流程
+
+```text
+1. auto-e2e generate --name <name> --case "..."   →  生成指令包 spec-briefs/<name>.md
+2. (编码 Agent 读指令包)                          →  编写 e2e/<name>.spec.ts
+3. auto-e2e run --spec e2e/<name>.spec.ts         →  执行并产出 run-result.json + 报告
 ```
 
 ---
@@ -228,16 +279,16 @@ auto-e2e run --tag smoke
 
 ### 全部选项
 
-| 选项                    | 说明                                   | 默认        |
-| ----------------------- | -------------------------------------- | ----------- |
-| `--root <path>`         | 项目根目录                             | cwd         |
-| `--spec <file>`         | 仅运行指定 spec 文件                   | —           |
-| `--suite <name>`        | 仅运行指定 suite                       | —           |
-| `--tag <grep>`          | 按 tag(grep)过滤测试                  | —           |
-| `--headed`              | 有头模式运行浏览器                     | `false`     |
-| `--browser <name>`      | 覆盖浏览器:`chromium`/`firefox`/`webkit` | `config.browser` |
-| `--update-snapshots`    | 更新快照基线                           | `false`     |
-| `--retries <n>`         | 失败重试次数                           | Playwright 默认 |
+| 选项                 | 说明                                     | 默认             |
+| -------------------- | ---------------------------------------- | ---------------- |
+| `--root <path>`      | 项目根目录                               | cwd              |
+| `--spec <file>`      | 仅运行指定 spec 文件                     | —                |
+| `--suite <name>`     | 仅运行指定 suite                         | —                |
+| `--tag <grep>`       | 按 tag(grep)过滤测试                     | —                |
+| `--headed`           | 有头模式运行浏览器                       | `false`          |
+| `--browser <name>`   | 覆盖浏览器:`chromium`/`firefox`/`webkit` | `config.browser` |
+| `--update-snapshots` | 更新快照基线                             | `false`          |
+| `--retries <n>`      | 失败重试次数                             | Playwright 默认  |
 
 执行后输出形如:
 
@@ -252,11 +303,11 @@ run-result: /path/.auto-e2e/run-result.json
 
 ### 结果产物
 
-| 产物                                       | 说明                                         |
-| ------------------------------------------ | -------------------------------------------- |
-| `.auto-e2e/run-result.json`                | 最近一次运行的顶层快照                       |
-| `.auto-e2e/reports/<run-id>/run-result.json` | 按 `runId` 归档的历史报告                    |
-| `run-result.json` 中的 `failures[]`        | 每条失败含标题、文件、行号、错误信息、产物   |
+| 产物                                         | 说明                                       |
+| -------------------------------------------- | ------------------------------------------ |
+| `.auto-e2e/run-result.json`                  | 最近一次运行的顶层快照                     |
+| `.auto-e2e/reports/<run-id>/run-result.json` | 按 `runId` 归档的历史报告                  |
+| `run-result.json` 中的 `failures[]`          | 每条失败含标题、文件、行号、错误信息、产物 |
 
 退出码:有运行错误或测试失败(`status === 'failed'`)→ `1`;否则 `0`。
 
@@ -321,15 +372,16 @@ console.log(result.status, result.summary)
 
 ## 命令一览
 
-| 命令              | 作用                                         | 状态 |
-| ----------------- | -------------------------------------------- | ---- |
-| `auto-e2e init`   | 初始化 `.auto-e2e/` 与 `config.json`         | ✅   |
-| `auto-e2e doctor` | 环境自检                                     | ✅   |
-| `auto-e2e scan`   | 扫描项目结构,生成 app-map / selector-map    | ✅   |
-| `auto-e2e prepare`| 启动 dev server 并等待就绪                   | ✅   |
-| `auto-e2e run`    | 执行 Playwright 测试                         | ✅   |
-| `auto-e2e observe`| 页面观察                                     | ⏳ 路线图阶段 4 |
-| `auto-e2e report` | 反馈报告                                     | ⏳ 路线图阶段 6 |
+| 命令                | 作用                                     | 状态            |
+| ------------------- | ---------------------------------------- | --------------- |
+| `auto-e2e init`     | 初始化 `.auto-e2e/` 与 `config.json`     | ✅              |
+| `auto-e2e doctor`   | 环境自检                                 | ✅              |
+| `auto-e2e scan`     | 扫描项目结构,生成 app-map / selector-map | ✅              |
+| `auto-e2e prepare`  | 启动 dev server 并等待就绪               | ✅              |
+| `auto-e2e generate` | 文本用例 → Spec 生成指令包               | ✅              |
+| `auto-e2e run`      | 执行 Playwright 测试                     | ✅              |
+| `auto-e2e observe`  | 页面观察                                 | ⏳ 路线图阶段 4 |
+| `auto-e2e report`   | 反馈报告                                 | ⏳ 路线图阶段 6 |
 
 获取帮助:
 

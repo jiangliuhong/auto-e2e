@@ -13,6 +13,8 @@ import {
   type CleanupResult,
   type DoctorOptions,
   type DoctorResult,
+  type GenerateOptions,
+  type GenerateResult,
   type ObserveOptions,
   type ObservationResult,
   type PrepareOptions,
@@ -24,14 +26,16 @@ import {
   type ScanOptions,
   type ScanResult,
 } from '../core/index.js'
+import type { AppMap, Config, SelectorMap } from '../core/models.js'
 import type { StorageService } from './storage/index.js'
 import type { EnvironmentProvider } from './environment/index.js'
 import type { CompositeScanner } from '../scanner/composite-scanner.js'
 import { generateContextMarkdown } from '../scanner/context-generator.js'
-import { agentContextPath, reportRunDir, runResultPath } from './storage/paths.js'
+import { generateSpecBrief } from './spec-brief.js'
+import { agentContextPath, reportRunDir, runResultPath, specBriefPath } from './storage/paths.js'
 import { runDoctor } from './doctor.js'
 import { toRuntimeError } from '../utils/errors.js'
-import { writeJson } from '../utils/fs.js'
+import { readText, writeJson } from '../utils/fs.js'
 import type { Executor } from './executor/index.js'
 
 export interface DefaultRuntimeDeps {
@@ -133,6 +137,118 @@ export class DefaultRuntime implements AutoE2ERuntime {
 
   async report(_options?: ReportOptions): Promise<ReportResult> {
     return this.notImplemented<ReportResult>('feedback', (errors) => ({ ok: false, errors }))
+  }
+
+  async generate(options: GenerateOptions): Promise<GenerateResult> {
+    const errors: GenerateResult['errors'] = []
+    try {
+      await this.deps.storage.ensureLayout()
+
+      // 1) 校验必填项并解析文本用例(description 优先,否则读 caseFile)。
+      const name = options.name?.trim()
+      if (!name) {
+        errors.push(
+          toRuntimeError(new Error('缺少必填参数 name(用例名称)'), {
+            code: 'generate_invalid_input',
+            recoverable: true,
+          }),
+        )
+        return { ok: false, errors }
+      }
+
+      let description = options.description
+      if (description === undefined && options.caseFile) {
+        const fileAbs = path.isAbsolute(options.caseFile)
+          ? options.caseFile
+          : path.resolve(this.deps.projectRoot, options.caseFile)
+        const content = await readText(fileAbs)
+        if (content === undefined) {
+          errors.push(
+            toRuntimeError(new Error(`文本用例文件不存在:${options.caseFile}`), {
+              code: 'generate_case_file_missing',
+              recoverable: true,
+              details: { caseFile: options.caseFile },
+            }),
+          )
+          return { ok: false, errors }
+        }
+        description = content
+      }
+      if (description === undefined || description.trim() === '') {
+        errors.push(
+          toRuntimeError(new Error('缺少文本用例(请通过 description 或 caseFile 提供)'), {
+            code: 'generate_invalid_input',
+            recoverable: true,
+          }),
+        )
+        return { ok: false, errors }
+      }
+
+      // 2) 读取 scan 产物(app-map / selector-map);缺失则自动触发一次 scan(幂等)。
+      let scanTriggered = false
+      let appMap = await this.deps.storage.readJson<AppMap>('.auto-e2e/app-map.json')
+      let selectorMap = await this.deps.storage.readJson<SelectorMap>('.auto-e2e/selector-map.json')
+      if (appMap === undefined || selectorMap === undefined) {
+        scanTriggered = true
+        const scanResult = await this.scan({ projectRoot: this.deps.projectRoot })
+        if (scanResult.ok) {
+          appMap = scanResult.appMap
+          selectorMap = scanResult.selectorMap
+        } else {
+          // scan 失败不阻断生成;上下文节留空,但记下错误供调用方感知。
+          for (const e of scanResult.errors) errors.push(e)
+        }
+      }
+
+      // 3) 读取 config(可缺失,默认值仅用于回退 testDir)。
+      const config = await this.deps.storage.readJson<Config>('.auto-e2e/config.json')
+
+      // 4) 推导建议 spec 路径:options.specDir → app-map.playwright.testDir → "e2e"。
+      const testDir = options.specDir ?? appMap?.playwright?.testDir ?? 'e2e'
+      const suggestedSpecPath = path.posix.join(testDir, `${name}.spec.ts`)
+
+      // 5) 已存在且未 force → 不覆盖。
+      const relBrief = `.auto-e2e/spec-briefs/${name}.md`
+      const exists = await this.deps.storage.exists(relBrief)
+      if (exists && !options.force) {
+        errors.push(
+          toRuntimeError(new Error(`指令包已存在:${relBrief}(使用 --force 覆盖)`), {
+            code: 'generate_brief_exists',
+            recoverable: true,
+            details: { briefPath: relBrief },
+          }),
+        )
+        return {
+          ok: false,
+          briefPath: specBriefPath(this.deps.projectRoot, name),
+          suggestedSpecPath: path.resolve(this.deps.projectRoot, suggestedSpecPath),
+          scanTriggered,
+          errors,
+        }
+      }
+
+      // 6) 渲染并落盘。
+      const markdown = generateSpecBrief({
+        name,
+        description,
+        ...(appMap ? { appMap } : {}),
+        ...(selectorMap ? { selectorMap } : {}),
+        ...(config ? { config } : {}),
+        suggestedSpecPath,
+      })
+      await this.deps.storage.writeText(relBrief, markdown)
+
+      return {
+        ok: true,
+        briefPath: specBriefPath(this.deps.projectRoot, name),
+        suggestedSpecPath: path.resolve(this.deps.projectRoot, suggestedSpecPath),
+        scanTriggered,
+        errors,
+      }
+    } catch (err) {
+      errors.push(toRuntimeError(err, { code: 'generate_failed', recoverable: true }))
+      return { ok: false, errors }
+    }
   }
 
   async doctor(options?: DoctorOptions): Promise<DoctorResult> {

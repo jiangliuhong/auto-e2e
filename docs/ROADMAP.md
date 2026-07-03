@@ -107,6 +107,28 @@ auto-e2e run --spec e2e/specs/login.spec.ts
 
 ---
 
+## 阶段 5.5 — 文本用例 → Spec 生成指令包 ✅
+
+目标:让外部编码 Agent 能从一条文本用例出发,产出可执行的标准 Playwright spec。
+
+交付物:
+
+- `generate` 命令:接收文本用例(`--case` / `--case-file`),把它和项目上下文(路由/选择器)+ Playwright 编写规范组装为「Spec 生成指令包」
+- `.auto-e2e/spec-briefs/<name>.md` 产物
+- 未执行 scan 时自动触发 scan 补充上下文
+
+> Runtime 不做推理、不调用 LLM。spec 代码由外部 Agent 依据指令包编写,之后用 `run --spec` 执行。
+
+命令:
+
+```bash
+auto-e2e generate --name login --case "用户登录后应跳转到 /dashboard"
+# 编码 Agent 据指令包编写 e2e/login.spec.ts
+auto-e2e run --spec e2e/login.spec.ts
+```
+
+---
+
 ## 阶段 6 — Feedback
 
 目标:把执行结果转换为 Agent 可读的反馈。

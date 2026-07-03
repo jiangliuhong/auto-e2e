@@ -64,3 +64,22 @@ export interface DoctorOptions {
   /** 是否跳过 baseUrl 可达性检查(在离线/无 dev server 时)。 */
   skipReachability?: boolean
 }
+
+/** generate() 入参。 */
+export interface GenerateOptions {
+  /** 项目根目录,默认 cwd。 */
+  projectRoot?: string
+  /**
+   * 用例名称,同时作为指令包文件名与建议 spec 名
+   * (例如 "login" → spec-briefs/login.md 与 <testDir>/login.spec.ts)。必填。
+   */
+  name: string
+  /** 文本用例内容(与 caseFile 二选一)。 */
+  description?: string
+  /** 文本用例文件路径(与 description 二选一)。 */
+  caseFile?: string
+  /** 覆盖建议的 spec 输出目录(默认取 app-map.playwright.testDir,回退 "e2e")。 */
+  specDir?: string
+  /** 覆盖已存在的指令包(默认 false)。 */
+  force?: boolean
+}

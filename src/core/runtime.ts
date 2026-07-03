@@ -5,6 +5,7 @@
 import type {
   CleanupOptions,
   DoctorOptions,
+  GenerateOptions,
   ObserveOptions,
   PrepareOptions,
   ReportOptions,
@@ -14,6 +15,7 @@ import type {
 import type {
   CleanupResult,
   DoctorResult,
+  GenerateResult,
   ObservationResult,
   PrepareResult,
   ReportResult,
@@ -29,4 +31,5 @@ export interface AutoE2ERuntime {
   run(options?: RunOptions): Promise<RunResult>
   report(options?: ReportOptions): Promise<ReportResult>
   doctor(options?: DoctorOptions): Promise<DoctorResult>
+  generate(options: GenerateOptions): Promise<GenerateResult>
 }

@@ -16,6 +16,8 @@
 ├── codex-context.md
 ├── run-result.json
 ├── failure-summary.md
+├── spec-briefs/
+│   └── <name>.md
 ├── observations/
 │   └── <observation-id>/
 │       ├── observation.json
@@ -77,6 +79,23 @@
   ]
 }
 ```
+
+---
+
+## spec-briefs/\<name\>.md
+
+由 `auto-e2e generate` 产出的 **Spec 生成指令包**(Markdown),供外部编码 Agent 据此编写标准 Playwright spec 文件。Runtime 不做推理,spec 代码由外部 Agent 编写;写好后用 `auto-e2e run --spec <路径>` 执行。
+
+内容包含:
+
+- **任务**:把文本用例转换为标准 Playwright spec。
+- **文本用例**:用户输入的原始文本(`--case` 或 `--case-file`)。
+- **目标 spec 路径**:建议外部 Agent 写入 spec 的位置(默认 `<testDir>/<name>.spec.ts`,`testDir` 来自 `app-map.json`)。
+- **项目上下文**:框架、包管理器、Playwright 配置、baseUrl、脚本、页面路由、可用选择器(data-testid,取自 `selector-map.json`,超过 100 个截断)。
+- **Playwright 编写规范**:优先 `getByRole` / `getByLabel` / `data-testid`,避免 CSS 类名 / `nth-child` / 任意超时。
+- **验收标准**与**下一步**(`auto-e2e run --spec <路径>`)。
+
+> 若未执行过 `auto-e2e scan`,`generate` 会自动触发一次 scan 以补充项目上下文。
 
 ---
 
