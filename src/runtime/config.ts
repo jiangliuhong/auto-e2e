@@ -18,6 +18,7 @@ export const ConfigSchema = z
       })
       .optional(),
     storageState: z.string().optional(),
+    agentPlatform: z.enum(['codex', 'claude', 'zcode']).optional(),
   })
   .strict()
 

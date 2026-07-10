@@ -4,6 +4,7 @@
 
 import type {
   CleanupOptions,
+  CompileOptions,
   DoctorOptions,
   GenerateOptions,
   ObserveOptions,
@@ -11,9 +12,13 @@ import type {
   ReportOptions,
   RunOptions,
   ScanOptions,
+  SkillGenerateOptions,
+  SkillListOptions,
+  SkillValidateOptions,
 } from './options.js'
 import type {
   CleanupResult,
+  CompileResult,
   DoctorResult,
   GenerateResult,
   ObservationResult,
@@ -21,6 +26,9 @@ import type {
   ReportResult,
   RunResult,
   ScanResult,
+  SkillGenerateResult,
+  SkillListResult,
+  SkillValidateResult,
 } from './results.js'
 
 export interface AutoE2ERuntime {
@@ -32,4 +40,12 @@ export interface AutoE2ERuntime {
   report(options?: ReportOptions): Promise<ReportResult>
   doctor(options?: DoctorOptions): Promise<DoctorResult>
   generate(options: GenerateOptions): Promise<GenerateResult>
+  /** 发现指定平台下的全部 skill。 */
+  skillList(options?: SkillListOptions): Promise<SkillListResult>
+  /** 校验用例 Markdown 是否符合契约(并可校验 skill 存在性)。 */
+  skillValidate(options: SkillValidateOptions): Promise<SkillValidateResult>
+  /** 依据 skill 规则 + target,生成「用例编写指令包」(供外部 Agent 编写用例)。 */
+  skillGenerate(options: SkillGenerateOptions): Promise<SkillGenerateResult>
+  /** 把已校验的 Markdown 用例契约确定性编译为 Playwright spec 骨架。 */
+  compile(options: CompileOptions): Promise<CompileResult>
 }

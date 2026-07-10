@@ -65,10 +65,11 @@ auto-e2e init
 - 写入默认 `.auto-e2e/config.json`。
 - **幂等**:已存在 `config.json` 时默认**不会覆盖**(保留你的自定义配置)。
 
-| 选项            | 说明                       | 默认         |
-| --------------- | -------------------------- | ------------ |
-| `--root <path>` | 项目根目录                 | 当前工作目录 |
-| `--force`       | 覆盖已存在的 `config.json` | `false`      |
+| 选项                      | 说明                                      | 默认         |
+| ------------------------- | ----------------------------------------- | ------------ |
+| `--root <path>`           | 项目根目录                                | 当前工作目录 |
+| `--force`                 | 覆盖已存在的 `config.json`                | `false`      |
+| `--agent-platform <name>` | 编码 Agent 平台(`codex`/`claude`/`zcode`) | `codex`      |
 
 示例:
 
@@ -89,14 +90,15 @@ auto-e2e init --root ./my-app --force
 
 可配置字段(均可选):
 
-| 字段               | 类型                                | 说明                         |
-| ------------------ | ----------------------------------- | ---------------------------- |
-| `baseUrl`          | string (URL)                        | dev server 探测地址          |
-| `devCommand`       | string                              | 启动 dev server 的命令       |
-| `playwrightConfig` | string                              | Playwright 配置文件路径      |
-| `browser`          | `chromium` \| `firefox` \| `webkit` | 默认浏览器                   |
-| `viewport`         | `{ width, height }`                 | 视口尺寸                     |
-| `storageState`     | string                              | 复用的 storageState 文件路径 |
+| 字段               | 类型                                | 说明                              |
+| ------------------ | ----------------------------------- | --------------------------------- |
+| `baseUrl`          | string (URL)                        | dev server 探测地址               |
+| `devCommand`       | string                              | 启动 dev server 的命令            |
+| `playwrightConfig` | string                              | Playwright 配置文件路径           |
+| `browser`          | `chromium` \| `firefox` \| `webkit` | 默认浏览器                        |
+| `viewport`         | `{ width, height }`                 | 视口尺寸                          |
+| `storageState`     | string                              | 复用的 storageState 文件路径      |
+| `agentPlatform`    | `codex` \| `claude` \| `zcode`      | 编码 Agent 平台,决定 skill 根目录 |
 
 ---
 
@@ -214,6 +216,202 @@ agent-brief: /path/.auto-e2e/spec-briefs/login.md
 1. auto-e2e generate --name <name> --case "..."   →  生成指令包 spec-briefs/<name>.md
 2. (编码 Agent 读指令包)                          →  编写 e2e/<name>.spec.ts
 3. auto-e2e run --spec e2e/<name>.spec.ts         →  执行并产出 run-result.json + 报告
+```
+
+---
+
+## Skill 命令:基于项目 skill 生成结构化用例
+
+`auto-e2e skill` 让你在**项目内维护可复用的「用例编写 skill」**(SKILL.md + references),由 auto-e2e 读取并据此生成**「用例编写指令包」**(一份给编码 Agent 的 Markdown prompt),再由编码 Agent 编写出符合 **auto-e2e 用例契约**的 Markdown 用例。
+
+> 这与 `generate` 的区别:`generate` 产出的是「Spec 生成指令包」(给 Agent 写 `.spec.ts`);`skill generate` 产出的是「用例编写指令包」(给 Agent 写结构化 Markdown 用例),是 `generate` 之上的一层**用例契约化**能力。Runtime 仍不做推理,只做组装。
+
+### 平台目录约定
+
+skill 按编码 Agent 平台放在项目内的隐藏目录下,**安装时由 `auto-e2e init --agent-platform` 选择**:
+
+```text
+.codex/skills/<skill-name>/      # Codex
+.claude/skills/<skill-name>/     # Claude Code
+.zcode/skills/<skill-name>/      # ZCode
+  ├── SKILL.md                   # skill 规则正文(frontmatter description 可选)
+  └── references/
+      ├── case-schema.md         # 用例契约补充规则(可选)
+      ├── project-rules.md       # 项目专属规则(可选)
+      └── auth-rules.md          # 鉴权规则(可选)
+```
+
+`config.json` 的 `agentPlatform` 字段决定 auto-e2e 去哪个目录找 skill(默认 `codex`)。
+
+### 用例契约(auto-e2e skill 固定支持的结构)
+
+```markdown
+# 用例标题
+
+## Target
+
+- route: /global/pl-report/parameters?country=mx
+- module: pl-forecast
+- type: readonly-smoke
+
+## Preconditions
+
+- app: web + api development server
+- auth: use development login helper
+
+## Steps
+
+1. 登录具备菜单权限的用户。
+2. 打开 `/global/pl-report/parameters?country=mx`。
+
+## Assertions
+
+- 页面标题可见。
+
+## Network Expectations
+
+- GET /api/pl/forecast/parameter-sets
+
+## Stability Notes
+
+- 优先使用 role、label、visible text。
+- 禁止使用绝对 XPath、动态 id。
+
+## Write Operations # 仅当 Steps 含写操作时必填
+
+- testData: 由 fixture 提供唯一名
+- cleanup: 测试后删除该记录
+- idempotent: true
+```
+
+**必填段**:`Target` / `Preconditions` / `Steps` / `Assertions` / `Stability Notes`。缺一即校验失败。
+**写操作守门**:Steps 含写入语义(创建/修改/删除/提交/submit/save 等)时,必须声明 `Write Operations`(`testData` + `cleanup` + `idempotent`),否则校验失败。
+
+### 命令
+
+```bash
+# 列出已安装的 skill(读 config.agentPlatform 指定的目录)
+auto-e2e skill list
+auto-e2e skill list --platform claude       # 覆盖平台
+
+# 校验用例 Markdown 是否符合契约(可同时校验 skill 存在性)
+auto-e2e skill validate --case-file tests/auto-e2e-cases/pl/detail.md
+auto-e2e skill validate --case-file ... --skill auto-e2e-case-writer
+
+# 依据 skill + target,生成「用例编写指令包」
+auto-e2e skill generate \
+  --skill auto-e2e-case-writer \
+  --target "PL Forecast 参数集详情页" \
+  --route "/global/pl-report/parameters?country=mx" \
+  --slug pl-detail
+```
+
+| 命令/选项            | 说明                                                    |
+| -------------------- | ------------------------------------------------------- |
+| `skill list`         | 列出已发现的 skill                                      |
+| `--platform <name>`  | 覆盖 `config.agentPlatform`(`codex`/`claude`/`zcode`)   |
+| `skill validate`     | 校验用例 Markdown 契约                                  |
+| `--skill <name>`     | 同时校验该 skill 存在                                   |
+| `--case <text>`      | 内联用例 Markdown(与 `--case-file` 二选一)              |
+| `--case-file <file>` | 用例 Markdown 文件路径                                  |
+| `skill generate`     | 生成用例编写指令包                                      |
+| `--skill <name>`     | (必填)skill 名称                                        |
+| `--target <text>`    | (必填)用例目标的自然语言描述                            |
+| `--slug <slug>`      | 用例 slug(留空则从 target 派生)                         |
+| `--route <route>`    | 目标路由                                                |
+| `--case-dir <dir>`   | 覆盖建议的最终用例输出目录(默认 `tests/auto-e2e-cases`) |
+| `--force`            | 覆盖已存在的指令包                                      |
+| `--project <path>`   | 项目根目录(`--root` 的别名,默认 cwd)                    |
+
+### 从 skill 到用例的完整流程
+
+```text
+1. auto-e2e init --agent-platform codex            →  写入 config.agentPlatform
+2. (在 .codex/skills/<skill>/ 编写 SKILL.md)        →  定义用例编写规则
+3. auto-e2e skill generate --skill <skill> --target →  生成指令包 .auto-e2e/case-briefs/<slug>.md
+4. (编码 Agent 读指令包)                            →  编写 tests/auto-e2e-cases/<module>/<slug>.md
+5. auto-e2e skill validate --case-file <路径>       →  校验用例契约
+```
+
+> `skill generate` 产出的指令包落在 `.auto-e2e/case-briefs/<slug>.md`;最终用例 `tests/auto-e2e-cases/...` 由编码 Agent 编写(可提交的源码资产)。若未跑过 `scan`,`skill generate` 会**自动触发一次 scan** 以补充项目上下文。
+
+---
+
+## 从 Markdown 用例编译 spec 骨架
+
+当你已经有了一份**符合 auto-e2e 用例契约的 Markdown 用例**(经 `skill validate` 通过),`auto-e2e compile` 可以把它**确定性**编译为 Playwright `.spec.ts` 骨架。
+
+> auto-e2e 是 Runtime,**不做推理**。compile 只做模板映射:凡是契约/config 已显式给出的(route→goto、Network Expectations→拦截断言、viewport/storageState→test.use)都做实;凡是需要应用语义的(真实定位器、断言选择器)都留 `TODO` + 契约原文。**compile 前会强制校验契约**,缺必填段或写操作未声明 → 拒绝编译。
+
+### 用法
+
+```bash
+auto-e2e compile tests/auto-e2e-cases/pl-forecast/detail.md \
+  --out tests/auto-e2e-generated/detail.spec.ts
+```
+
+| 选项            | 说明                              | 默认  |
+| --------------- | --------------------------------- | ----- |
+| `<caseFile>`    | 用例 Markdown 文件(位置参数,必填) | —     |
+| `--out <file>`  | spec 输出路径(必填,相对项目根)    | —     |
+| `--root <path>` | 项目根目录                        | cwd   |
+| `--force`       | 覆盖已存在的 spec                 | false |
+
+执行后输出:
+
+```text
+✓ spec 骨架已生成:detail
+spec: /abs/tests/auto-e2e-generated/detail.spec.ts
+下一步: 由编码 Agent 补全 TODO(真实选择器与断言),再执行 `auto-e2e run --spec tests/auto-e2e-generated/detail.spec.ts`
+```
+
+产物形如(骨架 + TODO):
+
+```ts
+import { test, expect } from '@playwright/test'
+
+test.use({
+  viewport: { width: 1280, height: 720 },
+  storageState: '.auth/state.json',
+})
+
+test.describe('PL 参数集详情页', () => {
+  test('detail', async ({ page }) => {
+    const errorResponses: number[] = []
+    page.on('response', (response) => {
+      if (response.status() >= 400) errorResponses.push(response.status())
+    })
+
+    let api_pl_forecast_parameter_setsCount = 0
+    await page.route('**/api/pl/forecast/parameter-sets', async (route) => {
+      api_pl_forecast_parameter_setsCount += 1
+      await route.continue()
+    })
+
+    await page.goto('/global/pl-report/parameters?country=mx')
+
+    await test.step('1. 登录具备菜单权限的用户。', async () => {
+      /** TODO: 实现该步骤。契约原文:登录具备菜单权限的用户。 */
+    })
+
+    // TODO: 页面标题可见。
+    await expect(page.getByText(/.*/).first()).toBeVisible() // 占位
+
+    expect(api_pl_forecast_parameter_setsCount).toBeGreaterThan(0)
+    expect(errorResponses).toEqual([])
+  })
+})
+```
+
+> spec 骨架是**可提交的源码资产**(默认放 `tests/auto-e2e-generated/`),不属于 `.auto-e2e/`。补全 TODO 后用 `auto-e2e run --spec <路径>` 执行。
+
+### 从 Markdown 用例到执行的完整流程
+
+```text
+1. auto-e2e skill generate / validate        →  得到合法的 Markdown 用例
+2. auto-e2e compile <case.md> --out <spec>    →  生成 spec 骨架
+3. (编码 Agent 补全 TODO)                     →  真实选择器与断言
+4. auto-e2e run --spec <spec>                 →  执行并产出 run-result.json + 报告
 ```
 
 ---
@@ -379,6 +577,8 @@ console.log(result.status, result.summary)
 | `auto-e2e scan`     | 扫描项目结构,生成 app-map / selector-map | ✅              |
 | `auto-e2e prepare`  | 启动 dev server 并等待就绪               | ✅              |
 | `auto-e2e generate` | 文本用例 → Spec 生成指令包               | ✅              |
+| `auto-e2e skill`    | 管理 skill:list / validate / generate    | ✅              |
+| `auto-e2e compile`  | Markdown 用例 → spec 骨架                | ✅              |
 | `auto-e2e run`      | 执行 Playwright 测试                     | ✅              |
 | `auto-e2e observe`  | 页面观察                                 | ⏳ 路线图阶段 4 |
 | `auto-e2e report`   | 反馈报告                                 | ⏳ 路线图阶段 6 |

@@ -18,6 +18,8 @@
 ├── failure-summary.md
 ├── spec-briefs/
 │   └── <name>.md
+├── case-briefs/
+│   └── <slug>.md
 ├── observations/
 │   └── <observation-id>/
 │       ├── observation.json
@@ -96,6 +98,36 @@
 - **验收标准**与**下一步**(`auto-e2e run --spec <路径>`)。
 
 > 若未执行过 `auto-e2e scan`,`generate` 会自动触发一次 scan 以补充项目上下文。
+
+---
+
+## case-briefs/\<slug\>.md
+
+由 `auto-e2e skill generate` 产出的 **用例编写指令包**(Markdown),供外部编码 Agent 据此编写符合 auto-e2e 用例契约的结构化 Markdown 用例。Runtime 不做推理,用例内容由外部 Agent 编写;写好后用 `auto-e2e skill validate --case-file <路径>` 校验。
+
+内容包含:
+
+- **任务** + **目标**(`--target` 与 `--route`)。
+- **Skill 规则**:完整嵌入 `<skill>/SKILL.md` 正文。
+- **Skill 参考资料**:嵌入 `references/*.md`(case-schema / project-rules / auth-rules 等)。
+- **项目上下文**:框架、包管理器、Playwright 配置、baseUrl、storageState、页面路由、可用选择器(取自 `selector-map.json`,超过 30 个截断)。
+- **用例契约模板**:必填段(Target / Preconditions / Steps / Assertions / Stability Notes)+ 可选 Write Operations 段,route 预填。
+- **下一步**:`auto-e2e skill validate`。
+
+> 若未执行过 `auto-e2e scan`,`skill generate` 会自动触发一次 scan 以补充项目上下文。
+> 最终用例 `tests/auto-e2e-cases/<module>/<slug>.md` 是可提交的源码资产,**不属于** `.auto-e2e/`(后者是 Runtime 临时产物)。
+
+### 用例契约(供 Agent 编写时的格式约定)
+
+| 段名                  | 必填 | 说明                                                       |
+| --------------------- | ---- | ---------------------------------------------------------- |
+| `Target`              | 是   | 结构化为 `route` / `module` / `type` 三字段                |
+| `Preconditions`       | 是   | 列表项                                                     |
+| `Steps`               | 是   | 有序步骤                                                   |
+| `Assertions`          | 是   | 断言列表                                                   |
+| `Stability Notes`     | 是   | 稳定性约束(优先 role/label,禁止 XPath 等)               |
+| `Network Expectations`| 否   | 期望命中的接口                                             |
+| `Write Operations`    | 条件 | Steps 含写操作时必填:`testData` + `cleanup` + `idempotent` |
 
 ---
 

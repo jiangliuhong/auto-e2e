@@ -191,6 +191,16 @@ Runtime 生成的所有内容都应存放在:
 
 绝不要把运行时产物散落在整个项目中。
 
+### Skill(用例契约层)
+
+负责**发现项目 skill、校验用例契约、生成用例编写指令包**。
+
+- skill 按编码 Agent 平台存放在 `.codex` / `.claude` / `.zcode` 下的 `skills/<name>/SKILL.md`;平台由 `config.agentPlatform` 决定,**安装时由 `auto-e2e init --agent-platform` 选择**,不写死进核心。
+- 用例契约是确定性的 Markdown 结构(Target / Preconditions / Steps / Assertions / Network Expectations / Stability Notes / Write Operations),解析与校验均为纯函数,**不调用 LLM、不做语义猜测**。
+- `skill generate` 只做「组装」:把 skill 规则 + target + 项目上下文 + 契约模板拼成一份「用例编写指令包」(`.auto-e2e/case-briefs/<slug>.md`),交由外部 Agent 编写最终用例 —— 完全对齐 `generate` 的「组装不推理」模式。
+
+Skill 模块职责隔离:发现(skill-reader)、解析(case-contract)、校验(case-validator)、渲染(case-brief)各为独立纯函数模块。
+
 ---
 
 ## Provider 架构

@@ -9,6 +9,8 @@ import { makeScanCommand } from './commands/scan.js'
 import { makePrepareCommand } from './commands/prepare.js'
 import { makeGenerateCommand } from './commands/generate.js'
 import { makeRunCommand } from './commands/run.js'
+import { makeSkillCommand } from './commands/skill.js'
+import { makeCompileCommand } from './commands/compile.js'
 import { printRuntimeError } from './output.js'
 import { toRuntimeError } from '../utils/errors.js'
 
@@ -25,6 +27,8 @@ function createProgram(): Command {
   program.addCommand(makePrepareCommand())
   program.addCommand(makeGenerateCommand())
   program.addCommand(makeRunCommand())
+  program.addCommand(makeSkillCommand())
+  program.addCommand(makeCompileCommand())
 
   return program
 }

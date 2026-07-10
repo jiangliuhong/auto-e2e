@@ -59,6 +59,10 @@ export function historyDir(root: string): string {
 export function specBriefsDir(root: string): string {
   return path.join(runtimeDir(root), 'spec-briefs')
 }
+/** 用例编写指令包目录:`auto-e2e skill generate` 产出的 Markdown 存放处。 */
+export function caseBriefsDir(root: string): string {
+  return path.join(runtimeDir(root), 'case-briefs')
+}
 
 /** 单次 observation 的目录。 */
 export function observationDir(root: string, observationId: string): string {
@@ -75,6 +79,11 @@ export function specBriefPath(root: string, name: string): string {
   return path.join(specBriefsDir(root), `${name}.md`)
 }
 
+/** 单个用例编写指令包文件路径:`case-briefs/<slug>.md`。 */
+export function caseBriefPath(root: string, slug: string): string {
+  return path.join(caseBriefsDir(root), `${slug}.md`)
+}
+
 /**
  * 列出 .auto-e2e/ 下应确保存在的所有目录(相对 root)。
  * 用于 ensureLayout()。
@@ -86,5 +95,6 @@ export function layoutDirs(root: string): string[] {
     reportsDir(root),
     historyDir(root),
     specBriefsDir(root),
+    caseBriefsDir(root),
   ]
 }

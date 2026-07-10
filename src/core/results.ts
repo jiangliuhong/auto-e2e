@@ -4,6 +4,7 @@
 // 所有 result 都携带 errors: RuntimeError[],允许部分成功。
 
 import type {
+  AgentPlatform,
   ArtifactRef,
   AppMap,
   ConsoleMessageRecord,
@@ -13,6 +14,8 @@ import type {
   RunFailure,
   RunSummary,
   SelectorMap,
+  SkillDescriptor,
+  TestCaseCase,
 } from './models.js'
 import type { RuntimeError } from './errors.js'
 
@@ -99,5 +102,43 @@ export interface GenerateResult {
   suggestedSpecPath?: string
   /** 是否因缺失 scan 产物而自动触发了 scan。 */
   scanTriggered?: boolean
+  errors: RuntimeError[]
+}
+
+// --- skill 命令相关返回 ---
+
+export interface SkillListResult {
+  ok: boolean
+  /** 实际使用的平台。 */
+  platform?: AgentPlatform
+  /** 发现的 skill 列表。 */
+  skills: SkillDescriptor[]
+  errors: RuntimeError[]
+}
+
+export interface SkillValidateResult {
+  ok: boolean
+  /** 解析出的用例契约(可缺失)。 */
+  testCase?: TestCaseCase
+  errors: RuntimeError[]
+}
+
+export interface SkillGenerateResult {
+  ok: boolean
+  /** 生成的用例编写指令包绝对路径。 */
+  briefPath?: string
+  /** 建议外部 Agent 写入最终用例的绝对路径。 */
+  suggestedCasePath?: string
+  /** 是否因缺失 scan 产物而自动触发了 scan。 */
+  scanTriggered?: boolean
+  errors: RuntimeError[]
+}
+
+export interface CompileResult {
+  ok: boolean
+  /** 生成的 spec 绝对路径。 */
+  specPath?: string
+  /** 建议的执行命令(提示用)。 */
+  suggestedRunCommand?: string
   errors: RuntimeError[]
 }

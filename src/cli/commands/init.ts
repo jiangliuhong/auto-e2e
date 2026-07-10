@@ -9,13 +9,17 @@ import { configPath } from '../../runtime/storage/paths.js'
 import { defaultConfig, parseConfig } from '../../runtime/config.js'
 import { toRuntimeError } from '../../utils/errors.js'
 import { printInfo, printRuntimeError, printSuccess } from '../output.js'
+import type { AgentPlatform } from '../../core/models.js'
 import type { RuntimeError } from '../../core/errors.js'
+import { normalizeAgentPlatform } from '../../runtime/skill/platform.js'
 
 export interface InitOptions {
   /** 项目根目录,默认 cwd。 */
   root?: string
   /** 强制覆盖已有 config.json。 */
   force?: boolean
+  /** 编码 Agent 平台(codex/claude/zcode),写入 config.agentPlatform。 */
+  agentPlatform?: AgentPlatform
 }
 
 export interface InitOutcome {
@@ -43,7 +47,10 @@ export async function runInit(opts: InitOptions = {}): Promise<InitOutcome> {
       return { ok: true, configPath: configPath(root), created, errors }
     }
 
-    const config = defaultConfig()
+    const config = {
+      ...defaultConfig(),
+      ...(opts.agentPlatform ? { agentPlatform: opts.agentPlatform } : {}),
+    }
     parseConfig(config) // 写入前自校验,确保默认值合法
     await storage.writeJson(relConfig, config)
     created.push(relConfig)
@@ -59,11 +66,32 @@ export function makeInitCommand(): Command {
     .description('初始化 .auto-e2e/ 目录与默认 config.json')
     .option('--root <path>', '项目根目录', process.cwd())
     .option('--force', '覆盖已存在的 config.json')
-    .action(async (cmdOpts: { root?: string; force?: boolean }) => {
-      const result = await runInit({ root: cmdOpts.root, force: cmdOpts.force })
+    .option('--agent-platform <name>', '编码 Agent 平台(codex/claude/zcode),决定 skill 根目录')
+    .action(async (cmdOpts: { root?: string; force?: boolean; agentPlatform?: string }) => {
+      const platform = normalizeAgentPlatform(cmdOpts.agentPlatform)
+      if (cmdOpts.agentPlatform !== undefined && platform === undefined) {
+        printRuntimeError(
+          toRuntimeError(
+            new Error(
+              `非法的 --agent-platform 值:${cmdOpts.agentPlatform}(可选 codex/claude/zcode)`,
+            ),
+            { code: 'init_invalid_platform', recoverable: true },
+          ),
+        )
+        process.exitCode = 1
+        return
+      }
+      const result = await runInit({
+        root: cmdOpts.root,
+        force: cmdOpts.force,
+        ...(platform ? { agentPlatform: platform } : {}),
+      })
       for (const e of result.errors) printRuntimeError(e)
       for (const f of result.created) printSuccess(`已创建 ${f}`)
       printInfo(`config: ${result.configPath}`)
+      if (platform) {
+        printInfo(`agent-platform: ${platform}(skill 根:.${platform}/skills)`)
+      }
       process.exitCode = result.ok ? 0 : 1
     })
 }
