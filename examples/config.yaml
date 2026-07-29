@@ -1,0 +1,48 @@
+project:
+  name: demo-web
+  baseUrl: http://127.0.0.1:3000
+  startCommand: npm run dev
+  healthUrl: http://127.0.0.1:3000
+  startupTimeout: 120000
+
+agent:
+  # mock：离线闭环，不依赖真实 ChatGPT OAuth（默认）
+  # sdk：真实接入 Pi SDK（需先 auto-e2e auth login）
+  implementation: mock
+  provider: chatgpt-oauth
+  model: default
+  thinkingLevel: high
+
+browser:
+  explorer: betterwright
+  browser: chromium
+  headless: true
+  sessionProfile: admin
+  timeout: 30000
+  # mock：离线闭环；real：真实 BetterWright 浏览器
+  implementation: mock
+
+playwright:
+  configFile: playwright.config.ts
+  generatedDirectory: .auto-e2e/generated
+  retries: 1
+  workers: 1
+  trace: retain-on-failure
+  screenshot: only-on-failure
+  video: retain-on-failure
+
+generation:
+  requireAcceptanceCriteria: true
+  preferTestId: true
+  allowSourceModification: false
+  maxTestsPerTask: 10
+  overwriteGeneratedTests: true
+
+report:
+  outputDirectory: .auto-e2e/reports
+  artifactDirectory: .auto-e2e/artifacts
+  formats:
+    - console
+    - json
+    - html
+    - junit
