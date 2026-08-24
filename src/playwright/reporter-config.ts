@@ -83,6 +83,8 @@ export function buildTempConfig(
   baseURL?: string,
   mode: 'incremental' | 'full' = 'incremental',
   baseConfigPath?: string,
+  storageStatePath?: string,
+  channel?: string,
 ): string {
   const reporterEntries = opts.formats
     .map((fmt) => {
@@ -106,6 +108,8 @@ export function buildTempConfig(
       : '';
 
   const testDirLine = baseConfigPath ? '' : `  testDir: ${JSON.stringify(projectRoot)},\n`;
+  const inheritedUseLine = baseConfigPath ? '    ...(baseConfig.use ?? {}),\n' : '';
+  const channelLine = channel && channel !== 'chromium' ? `    channel: ${JSON.stringify(channel)},\n` : '';
   const body = `${testDirLine}
 ${testMatchLine}  retries: ${opts.retries},
   workers: ${opts.workers},
@@ -113,7 +117,8 @@ ${testMatchLine}  retries: ${opts.retries},
 ${reporterEntries}
   ],
   use: {
-    ${baseURL ? `baseURL: ${JSON.stringify(baseURL)},` : ''}
+${inheritedUseLine}${channelLine}    ${baseURL ? `baseURL: ${JSON.stringify(baseURL)},` : ''}
+    ${storageStatePath ? `storageState: ${JSON.stringify(storageStatePath)},` : ''}
     trace: ${JSON.stringify(opts.trace)},
     screenshot: ${JSON.stringify(opts.screenshot)},
     video: ${JSON.stringify(opts.video)},

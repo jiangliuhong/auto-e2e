@@ -47,6 +47,8 @@ const reportWithFailure = {
 describe('failure-analyzer', () => {
   it('分类失败并写回 result.json，保留原始 summary', async () => {
     const { latestDir } = await setupLatest(reportWithFailure, {
+      schemaVersion: 2,
+      runId: '20260729T030000000Z-a1b2c3d4',
       taskId: 'TASK-1',
       status: 'failed',
       mode: 'incremental',
@@ -59,6 +61,7 @@ describe('failure-analyzer', () => {
     const r = await analyzeLastRun({
       latestDir,
       artifactDir: path.join(latestDir, 'artifacts'),
+      projectRoot: path.dirname(latestDir),
       client: new MockPiClient(),
     });
     expect(r.failures.length).toBe(1);
@@ -76,6 +79,7 @@ describe('failure-analyzer', () => {
     const r = await analyzeLastRun({
       latestDir: root,
       artifactDir: root,
+      projectRoot: root,
       client: new MockPiClient(),
     });
     expect(r.failures).toEqual([]);

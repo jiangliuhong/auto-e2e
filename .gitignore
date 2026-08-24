@@ -10,3 +10,4 @@ coverage/
 demo/
 .zcode/
 test-results/
+.DS_Store

@@ -17,12 +17,18 @@ import type {
   GenerateTestInput,
   GeneratedTest,
   FailureAnalysisInput,
+  PiTelemetrySnapshot,
 } from './pi-client.js';
+import type {
+  ExplorationDecision,
+  ExplorationDecisionInput,
+} from '../domain/exploration-action.js';
 import type { TestPlan, TestCase } from '../domain/test-plan.js';
 import type { FailureEntry } from '../domain/test-result.js';
 import type { TaskSpec } from '../domain/task-spec.js';
 
 export class MockPiClient implements PiClient {
+  private calls = 0;
   async checkAuth(): Promise<AuthStatus> {
     return { authenticated: true, provider: 'mock', message: 'mock 模式，无需 OAuth' };
   }
@@ -32,6 +38,7 @@ export class MockPiClient implements PiClient {
   }
 
   async analyzeRequirement(input: RequirementAnalysisInput): Promise<RequirementAnalysis> {
+    this.calls++;
     const spec = input.taskSpec;
     return {
       understanding: spec.requirement,
@@ -41,6 +48,7 @@ export class MockPiClient implements PiClient {
   }
 
   async createTestPlan(input: TestPlanInput): Promise<TestPlan> {
+    this.calls++;
     const spec = input.taskSpec;
     const max = input.maxTestsPerTask;
     const cases: TestCase[] = [];
@@ -85,6 +93,7 @@ export class MockPiClient implements PiClient {
   }
 
   async generateTest(input: GenerateTestInput): Promise<GeneratedTest> {
+    this.calls++;
     const { taskSpec, testPlan, exploration, preferTestId } = input;
     const code = renderTestFile(taskSpec, testPlan, exploration, preferTestId);
     return {
@@ -94,7 +103,15 @@ export class MockPiClient implements PiClient {
     };
   }
 
+  async decideExplorationAction(
+    _input: ExplorationDecisionInput,
+  ): Promise<ExplorationDecision> {
+    this.calls++;
+    return { type: 'complete', reason: 'mock 页面已完成静态探索' };
+  }
+
   async analyzeFailure(input: FailureAnalysisInput): Promise<FailureEntry> {
+    this.calls++;
     const { category, confidence } = classifyFailure(input);
     return {
       test: input.testTitle,
@@ -104,6 +121,13 @@ export class MockPiClient implements PiClient {
       actual: input.actual,
       confidence,
       artifacts: input.artifacts,
+    };
+  }
+
+  getTelemetry(): PiTelemetrySnapshot {
+    return {
+      calls: this.calls, retries: 0, durationMs: 0, tokenUsage: null,
+      promptHashes: {}, knowledgeHashes: {},
     };
   }
 

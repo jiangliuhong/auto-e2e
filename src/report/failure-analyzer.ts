@@ -11,12 +11,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { PiClient } from '../agent/pi-client.js';
-import type { FailureEntry, TestResult } from '../domain/test-result.js';
+import { TestResultSchema, type FailureEntry, type TestResult } from '../domain/test-result.js';
 import {
   parsePlaywrightJson,
-  collectSpecs,
   type PlaywrightJsonReport,
-  type PlaywrightSpec,
 } from '../playwright/result-parser.js';
 
 export interface AnalyzeFailuresInput {
@@ -24,6 +22,7 @@ export interface AnalyzeFailuresInput {
   latestDir: string;
   /** artifacts 目录（绝对路径），用于查找截图/trace。 */
   artifactDir: string;
+  projectRoot: string;
   client: PiClient;
 }
 
@@ -40,21 +39,22 @@ export async function analyzeLastRun(input: AnalyzeFailuresInput): Promise<Analy
   const report = await readJson<PlaywrightJsonReport>(
     path.join(input.latestDir, 'playwright.json'),
   );
-  const existingResult = await readJson<TestResult | undefined>(
+  const existingRaw = await readJson<unknown>(
     path.join(input.latestDir, 'result.json'),
   ).catch(() => undefined);
+  const existingParsed = TestResultSchema.safeParse(existingRaw);
+  const existingResult = existingParsed.success ? existingParsed.data : undefined;
 
   if (!report) {
     return { failures: [], updatedResult: existingResult };
   }
 
   const parsed = parsePlaywrightJson(report);
-  const specs = collectSpecs(report);
   const failures: FailureEntry[] = [];
 
   for (const raw of parsed.rawFailures) {
     // 收集该失败的产物路径（按测试标题在 artifactDir 下查找）。
-    const artifacts = collectArtifacts(input.artifactDir, raw.test);
+    const artifacts = await existingArtifacts(input.projectRoot, raw.artifacts);
     const entry = await input.client.analyzeFailure({
       testTitle: raw.test,
       errorMessage: raw.message,
@@ -64,9 +64,6 @@ export async function analyzeLastRun(input: AnalyzeFailuresInput): Promise<Analy
     failures.push(entry);
   }
 
-  // 保留原始错误信息：originalError 字段不被覆盖。
-  void specs;
-
   let updatedResult: TestResult | undefined;
   if (existingResult) {
     updatedResult = { ...existingResult, failures };
@@ -75,6 +72,12 @@ export async function analyzeLastRun(input: AnalyzeFailuresInput): Promise<Analy
       JSON.stringify(updatedResult, null, 2) + '\n',
       'utf8',
     );
+    const reportsRoot = path.dirname(input.latestDir);
+    await fs.writeFile(
+      path.join(reportsRoot, 'runs', existingResult.runId, 'result.json'),
+      JSON.stringify(updatedResult, null, 2) + '\n',
+      'utf8',
+    ).catch(() => undefined);
   }
 
   return { failures, updatedResult };
@@ -90,16 +93,16 @@ async function readJson<T>(filePath: string): Promise<T | undefined> {
 }
 
 /** 在 artifactDir 下按测试标题关键词查找截图/trace/video。 */
-function collectArtifacts(
-  artifactDir: string,
-  testTitle: string,
-): { screenshot?: string; trace?: string; video?: string } {
-  // 启发式：遍历 artifactDir，匹配标题相关的文件。
-  // 这里只返回目录约定，真实文件收集需要 fs 遍历；保持简单。
-  const slug = testTitle.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 40).toLowerCase();
-  const result: { screenshot?: string; trace?: string; video?: string } = {};
-  // 仅当对应文件存在时填充（异步遍历开销大，这里用约定路径）。
-  void artifactDir;
-  void slug;
-  return result;
+async function existingArtifacts(
+  baseDirectory: string,
+  artifacts?: { screenshot?: string; trace?: string; video?: string },
+): Promise<typeof artifacts> {
+  if (!artifacts) return undefined;
+  const pairs = await Promise.all(Object.entries(artifacts).map(async ([key, value]) => [
+    key,
+    value && await fs.access(path.resolve(baseDirectory, value))
+      .then(() => path.resolve(baseDirectory, value)).catch(() => undefined),
+  ] as const));
+  const result = Object.fromEntries(pairs.filter(([, value]) => value));
+  return Object.keys(result).length > 0 ? result : undefined;
 }

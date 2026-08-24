@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG_INPUT = {
   project: {
     name: 'demo-web',
     baseUrl: 'http://127.0.0.1:3000',
+    manageApplication: true,
     startCommand: 'npm run dev',
     healthUrl: 'http://127.0.0.1:3000',
   },

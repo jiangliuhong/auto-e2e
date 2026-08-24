@@ -11,7 +11,7 @@ export interface SpecSchemaOptions extends RunOptions {}
  * `auto-e2e spec schema`：输出 task-spec.json 的权威字段规范。
  *
  * 规范从 TaskSpecSchema（Zod）反射生成，保证与代码同源。
- * Codex 等调用方可用 `--json` 获取机器可读结构。
+ * 自动化调用方可用 `--json` 获取机器可读结构。
  */
 export async function specSchemaCommand(opts: SpecSchemaOptions): Promise<number> {
   return runCommand<SpecSchemaResult>(opts, async (ctx) => {
@@ -47,7 +47,7 @@ export function registerSpec(program: Command): void {
 
   spec
     .command('schema')
-    .description('输出 task-spec.json 的字段规范（从 Zod schema 反射，供 Codex 读取）')
+    .description('输出 task-spec.json 的字段规范（从 Zod schema 反射，供自动化调用方读取）')
     .action(async (opts) => {
       const code = await specSchemaCommand(mergeGlobalOpts(opts, program) as SpecSchemaOptions);
       process.exit(code);

@@ -26,6 +26,7 @@ export interface PlaywrightSpec {
       duration: number;
       error?: { message?: string; snippet?: string; stack?: string };
       retry?: number;
+      attachments?: Array<{ name?: string; contentType?: string; path?: string }>;
     }>;
   }>;
 }
@@ -50,6 +51,7 @@ export interface ParsedTestResult {
     test: string;
     message: string;
     stack?: string;
+    artifacts?: { screenshot?: string; trace?: string; video?: string };
   }>;
   /** 整体 duration（ms）。 */
   durationMs: number;
@@ -110,6 +112,7 @@ export function parsePlaywrightJson(report: PlaywrightJsonReport): ParsedTestRes
           test: spec.title,
           message: lastResult?.error?.message ?? '测试失败',
           stack: lastResult?.error?.stack ?? lastResult?.error?.snippet,
+          artifacts: collectExistingArtifacts(lastResult?.attachments),
         });
       }
     }
@@ -122,16 +125,31 @@ export function parsePlaywrightJson(report: PlaywrightJsonReport): ParsedTestRes
   };
 }
 
+function collectExistingArtifacts(
+  attachments?: Array<{ name?: string; contentType?: string; path?: string }>,
+): { screenshot?: string; trace?: string; video?: string } | undefined {
+  if (!attachments) return undefined;
+  const result: { screenshot?: string; trace?: string; video?: string } = {};
+  for (const item of attachments) {
+    if (!item.path) continue;
+    const name = `${item.name ?? ''} ${item.contentType ?? ''}`.toLowerCase();
+    if (!result.screenshot && /screenshot|image\//.test(name)) result.screenshot = item.path;
+    else if (!result.trace && /trace|zip/.test(name)) result.trace = item.path;
+    else if (!result.video && /video\//.test(name)) result.video = item.path;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 /** 根据测试用例与验收标准计算覆盖。 */
 export function computeCoverage(
   acceptanceCriteria: string[],
-  testTitles: string[],
+  mappedCriteria: string[],
 ): Coverage {
-  const lowerTitles = testTitles.map((t) => t.toLowerCase());
+  const normalizedMappings = new Set(mappedCriteria.map((value) => value.trim().toLowerCase()));
   const covered: string[] = [];
   const uncovered: string[] = [];
   for (const criteria of acceptanceCriteria) {
-    const hit = lowerTitles.some((t) => t.includes(criteria.toLowerCase()));
+    const hit = normalizedMappings.has(criteria.trim().toLowerCase());
     if (hit) covered.push(criteria);
     else uncovered.push(criteria);
   }

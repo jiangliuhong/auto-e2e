@@ -22,7 +22,7 @@ const exploration: ExploreResult = {
       route: '/users',
       reachable: true,
       elements: [
-        { description: '禁用按钮', recommendedLocator: "page.getByTestId('disable-btn')", fallbackLocators: [], stable: true },
+        { description: '禁用按钮', recommendedLocator: "page.getByTestId('disable-btn')", fallbackLocators: [], stable: true, verified: true },
       ],
       observedRequests: [],
       screenshots: [],
@@ -66,6 +66,21 @@ describe('MockPiClient', () => {
     expect(gen.code).toContain("getByTestId('disable-btn')");
     // 不写死密码/cookie。
     expect(gen.code).not.toMatch(/password|cookie|token/i);
+  });
+
+  it('mock 状态化探索决策确定性结束', async () => {
+    const decision = await client.decideExplorationAction({
+      taskId: 'TASK-1',
+      route: '/users',
+      acceptanceCriteria: spec.acceptanceCriteria,
+      testCases: [],
+      current: {
+        url: 'http://localhost:3000/users',
+        elements: [],
+      },
+      history: [],
+    });
+    expect(decision).toEqual({ type: 'complete', reason: 'mock 页面已完成静态探索' });
   });
 
   it('analyzeFailure 按关键词分类', async () => {

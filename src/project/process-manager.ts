@@ -23,6 +23,8 @@ export interface ManagedApp {
 
 export interface StartAppOptions {
   projectRoot: string;
+  /** false 时目标应用由外部托管，跳过进程启动和无认证健康检查。 */
+  manageApplication?: boolean;
   startCommand: string;
   healthUrl: string;
   startupTimeout: number;
@@ -37,6 +39,11 @@ export interface StartAppOptions {
 export async function ensureAppRunning(opts: StartAppOptions): Promise<ManagedApp> {
   const logger = opts.logger;
   const fetchFn = opts.fetchFn;
+
+  if (opts.manageApplication === false) {
+    logger?.info('目标应用由外部托管，跳过本地启动和健康检查');
+    return { startedByUs: false, stop: async () => undefined };
+  }
 
   // 已健康则不启动。
   if (await probeHealth(opts.healthUrl, fetchFn)) {

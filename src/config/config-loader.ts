@@ -18,6 +18,7 @@ export const CONFIG_FILENAME = '.auto-e2e/config.yaml';
 const ENV_OVERRIDES: Record<string, string> = {
   AUTO_E2E_PROJECT_NAME: 'project.name',
   AUTO_E2E_PROJECT_BASEURL: 'project.baseUrl',
+  AUTO_E2E_PROJECT_MANAGEAPPLICATION: 'project.manageApplication',
   AUTO_E2E_PROJECT_STARTCOMMAND: 'project.startCommand',
   AUTO_E2E_PROJECT_HEALTHURL: 'project.healthUrl',
   AUTO_E2E_PROJECT_STARTUPTIMEOUT: 'project.startupTimeout',
@@ -112,6 +113,7 @@ function defaultConfigInput(): Record<string, unknown> {
     project: {
       name: 'demo-web',
       baseUrl: 'http://127.0.0.1:3000',
+      manageApplication: true,
       startCommand: 'npm run dev',
       healthUrl: 'http://127.0.0.1:3000',
     },

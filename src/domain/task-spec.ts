@@ -1,7 +1,7 @@
 /**
  * task-spec.json 规范（plan §8）。
  *
- * Codex 完成开发后必须生成此文件，作为 auto-e2e 本次任务的输入。
+ * 开发者或自动化调用方生成此文件，作为 auto-e2e 本次任务的输入。
  * 必填字段：taskId / title / requirement / acceptanceCriteria / changedFiles
  * 可选字段：changedRoutes / changedApis / riskHints / startCommand / baseUrl
  */

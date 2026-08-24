@@ -91,5 +91,21 @@ describe('reporter-config', () => {
     expect(code).toContain('...baseConfig');
     expect(code).not.toContain('testDir:');
     expect(code).not.toContain('testMatch:');
+    expect(code).toContain('...(baseConfig.use ?? {})');
+  });
+
+  it('认证开启时注入 storageState 且保留 base use', () => {
+    const code = buildTempConfig(
+      baseOpts,
+      '/project',
+      undefined,
+      'full',
+      '/project/playwright.config.ts',
+      '/project/.auto-e2e/auth/admin/playwright-storage-state.json',
+    );
+    expect(code).toContain('...(baseConfig.use ?? {})');
+    expect(code).toContain(
+      'storageState: "/project/.auto-e2e/auth/admin/playwright-storage-state.json"',
+    );
   });
 });

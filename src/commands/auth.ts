@@ -5,12 +5,22 @@ import { runCommand } from '../runtime/run-with-exit.js';
 import { mergeGlobalOpts } from '../runtime/global-options.js';
 import { loadConfig } from '../config/config-loader.js';
 import { createPiClient } from '../agent/pi-client-factory.js';
-import { SessionManager } from '../betterwright/session-manager.js';
+import {
+  AuthenticationManager,
+  authenticationTargets,
+} from '../auth/authentication-manager.js';
+import type { AuthenticationTarget } from '../auth/auth-types.js';
 
 export interface AuthLoginOptions extends RunOptions {}
 
 export interface AuthBrowserOptions extends RunOptions {
   profile?: string;
+  target?: 'all' | AuthenticationTarget;
+}
+
+export interface AuthStatusOptions extends RunOptions {
+  profile?: string;
+  target?: 'all' | AuthenticationTarget;
 }
 
 export async function authLoginCommand(opts: AuthLoginOptions): Promise<number> {
@@ -61,31 +71,68 @@ export async function authBrowserCommand(opts: AuthBrowserOptions): Promise<numb
   return runCommand(opts, async (ctx) => {
     const config = await loadConfig({ projectRoot: ctx.projectRoot });
     const profile = opts.profile ?? config.browser.sessionProfile;
-    const manager = new SessionManager({ browser: config.browser });
-    const client = manager.getOrCreate(profile);
-    try {
-      if (config.browser.implementation === 'real') {
-        // 真实模式：打开 baseUrl 让用户手动登录，完成后保存 Session。
-        ctx.logger.info(`请在打开的浏览器中完成 ${config.project.baseUrl} 的登录，完成后回到终端`);
-        const res = await client.run(
-          `await page.goto('${config.project.baseUrl}')`,
-        );
-        if (!res.ok) {
-          throw new AutoE2EError(ExitCode.BrowserFailed, `打开浏览器失败：${res.error ?? '未知错误'}`);
-        }
-      } else {
-        ctx.logger.info(`mock 模式：已为 profile ${profile} 创建虚拟会话`);
-      }
-      const message = `浏览器会话已保存（profile: ${profile}）`;
-      return {
-        exitCode: ExitCode.Ok,
-        json: { ok: true, profile },
-        message,
-      };
-    } finally {
-      await manager.closeAll();
-    }
+    const target = parseTarget(opts.target);
+    const manager = new AuthenticationManager({
+      projectRoot: ctx.projectRoot,
+      config,
+      profile,
+    });
+    const statuses = await manager.prepare(authenticationTargets(target), {
+      nonInteractive: ctx.nonInteractive,
+    });
+    const message = `业务认证已准备（profile: ${profile}, target: ${target}）`;
+    return {
+      exitCode: ExitCode.Ok,
+      json: {
+        ok: true,
+        enabled: true,
+        profile,
+        targets: statuses,
+      },
+      message,
+    };
   });
+}
+
+export async function authStatusCommand(opts: AuthStatusOptions): Promise<number> {
+  return runCommand(opts, async (ctx) => {
+    const config = await loadConfig({ projectRoot: ctx.projectRoot });
+    const profile = opts.profile ?? config.browser.sessionProfile;
+    const target = parseTarget(opts.target);
+    const manager = new AuthenticationManager({
+      projectRoot: ctx.projectRoot,
+      config,
+      profile,
+    });
+    const statuses = await manager.status(authenticationTargets(target));
+    const authenticated =
+      manager.enabled &&
+      authenticationTargets(target).every((item) => statuses[item]?.authenticated);
+    return {
+      exitCode: ExitCode.Ok,
+      json: {
+        ok: true,
+        enabled: manager.enabled,
+        authenticated,
+        profile,
+        targets: statuses,
+      },
+      message: manager.enabled
+        ? `业务认证状态：${authenticated ? '有效' : '无效'}（profile: ${profile}）`
+        : '业务认证未启用',
+    };
+  });
+}
+
+function parseTarget(target?: string): 'all' | AuthenticationTarget {
+  const value = target ?? 'all';
+  if (value !== 'all' && value !== 'explorer' && value !== 'runner') {
+    throw new AutoE2EError(
+      ExitCode.ConfigError,
+      `无效的认证目标：${value}（允许 all、explorer、runner）`,
+    );
+  }
+  return value;
 }
 
 export function registerAuth(program: Command): void {
@@ -101,10 +148,21 @@ export function registerAuth(program: Command): void {
 
   auth
     .command('browser')
-    .description('使用 BetterWright 打开浏览器完成业务系统登录并保存 Session')
-    .option('--profile <name>', '浏览器 Session Profile 名称', 'admin')
+    .description('分别准备 BetterWright 与 Playwright 的业务系统认证')
+    .option('--profile <name>', '浏览器身份 Profile 名称')
+    .option('--target <target>', '认证目标：all | explorer | runner', 'all')
     .action(async (opts) => {
       const code = await authBrowserCommand(mergeGlobalOpts(opts, program) as AuthBrowserOptions);
+      process.exit(code);
+    });
+
+  auth
+    .command('status')
+    .description('在线检查 BetterWright 与 Playwright 的业务认证状态')
+    .option('--profile <name>', '浏览器身份 Profile 名称')
+    .option('--target <target>', '检查目标：all | explorer | runner', 'all')
+    .action(async (opts) => {
+      const code = await authStatusCommand(mergeGlobalOpts(opts, program) as AuthStatusOptions);
       process.exit(code);
     });
 }

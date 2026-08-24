@@ -1,26 +1,23 @@
 project:
-  name: demo-web
-  baseUrl: http://127.0.0.1:3000
-  startCommand: npm run dev
-  healthUrl: http://127.0.0.1:3000
-  startupTimeout: 120000
+  name: demo-app
+  baseUrl: http://127.0.0.1:__PORT__
+  startCommand: node server.mjs
+  healthUrl: http://127.0.0.1:__PORT__/health
+  startupTimeout: 10000
 
 agent:
-  # mock：离线闭环，不依赖真实 ChatGPT OAuth（默认）
-  # sdk：真实接入 Pi SDK（需先 auto-e2e auth login）
-  implementation: mock
+  implementation: __AGENT__
   provider: chatgpt-oauth
   model: default
   thinkingLevel: high
 
 browser:
-  explorer: betterwright
+  explorer: playwright
   browser: chromium
   headless: true
   sessionProfile: admin
   timeout: 30000
-  # mock：离线闭环；real：真实 BetterWright 浏览器
-  implementation: mock
+  implementation: __BROWSER__
 
 playwright:
   configFile: playwright.config.ts

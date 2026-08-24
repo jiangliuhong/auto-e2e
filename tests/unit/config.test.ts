@@ -10,12 +10,29 @@ describe('config schema', () => {
   it('默认配置通过校验并填充所有默认值', () => {
     const cfg = defaultConfig();
     expect(cfg.agent.implementation).toBe('mock');
-    expect(cfg.browser.explorer).toBe('betterwright');
+    expect(cfg.project.manageApplication).toBe(true);
+    expect(cfg.browser.explorer).toBe('playwright');
+    expect(cfg.browser.channel).toBe('chrome');
     expect(cfg.browser.implementation).toBe('mock');
+    expect(cfg.authentication).toEqual({ enabled: false });
     expect(cfg.playwright.retries).toBe(1);
     expect(cfg.report.formats).toEqual(['console', 'json', 'html', 'junit']);
+    expect(cfg.knowledge).toEqual({ enabled: false, maxFiles: 3, maxCharacters: 12000 });
     // allowSourceModification 固定 false。
     expect(cfg.generation.allowSourceModification).toBe(false);
+  });
+
+  it('允许外部托管应用跳过本地进程管理', () => {
+    const cfg = AutoE2EConfigSchema.parse({
+      project: {
+        name: 'remote',
+        baseUrl: 'https://example.com',
+        manageApplication: false,
+        startCommand: 'unused',
+        healthUrl: 'https://example.com/health',
+      },
+    });
+    expect(cfg.project.manageApplication).toBe(false);
   });
 
   it('allowSourceModification 不允许设为 true', () => {
@@ -24,6 +41,68 @@ describe('config schema', () => {
       generation: { allowSourceModification: true },
     });
     expect(r.success).toBe(false);
+  });
+
+  it('认证开启时要求完整网页 SSO 成功条件', () => {
+    const base = {
+      project: { name: 'a', baseUrl: 'http://x', startCommand: 'x', healthUrl: 'http://x' },
+    };
+    expect(
+      AutoE2EConfigSchema.safeParse({
+        ...base,
+        authentication: { enabled: true },
+      }).success,
+    ).toBe(false);
+    expect(
+      AutoE2EConfigSchema.safeParse({
+        ...base,
+        browser: { sessionProfile: '../unsafe' },
+        authentication: {
+          enabled: true,
+          entryUrl: 'https://example.com/protected',
+          successUrlPrefix: 'https://example.com/app/',
+          successSelector: 'text=首页',
+          interactiveTimeout: 600000,
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      AutoE2EConfigSchema.safeParse({
+        ...base,
+        authentication: {
+          enabled: true,
+          entryUrl: 'https://example.com/protected',
+          successUrlPrefix: 'https://example.com/app/',
+          successSelector: 'text=首页',
+          interactiveTimeout: 600000,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      AutoE2EConfigSchema.safeParse({
+        ...base,
+        authentication: {
+          enabled: true,
+          entryUrl: 'https://example.com/protected',
+          successUrlPrefix: 'https://example.com/app/',
+          successSelector: 'text=首页',
+          interactiveTimeout: 600000,
+          password: 'must-not-be-accepted',
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      AutoE2EConfigSchema.safeParse({
+        ...base,
+        authentication: {
+          enabled: true,
+          entryUrl: 'https://example.com/protected?token=secret',
+          successUrlPrefix: 'https://example.com/app/',
+          successSelector: 'text=首页',
+          interactiveTimeout: 600000,
+        },
+      }).success,
+    ).toBe(false);
   });
 });
 

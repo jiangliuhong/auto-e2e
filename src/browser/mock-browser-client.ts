@@ -1,5 +1,5 @@
 /**
- * MockBetterWrightClient：不打开真实浏览器，基于代码字符串模拟页面交互。
+ * MockBrowserClient：不打开真实浏览器，基于代码字符串模拟页面交互。
  *
  * 维护一个简单的内存页面状态（当前 URL、title、已知元素），供 explorer 在离线
  * 闭环中测试。识别常见 Playwright 调用：
@@ -9,13 +9,13 @@
  * - screenshot({kind:'proof'}) -> 返回虚拟 proof 路径
  */
 import type {
-  BetterWrightClient,
-  BetterWrightClientOptions,
-  BwRunResult,
-  BwRunOptions,
-} from './betterwright-client.js';
+  BrowserClient,
+  BrowserClientOptions,
+  BrowserRunResult,
+  BrowserRunOptions,
+} from './browser-client.js';
 
-export class MockBetterWrightClient implements BetterWrightClient {
+export class MockBrowserClient implements BrowserClient {
   private url = '';
   private title = '';
   private readonly profile?: string;
@@ -27,12 +27,18 @@ export class MockBetterWrightClient implements BetterWrightClient {
     testid?: string;
   }> = [];
 
-  constructor(opts: BetterWrightClientOptions = {}) {
+  constructor(opts: BrowserClientOptions = {}) {
     this.profile = opts.profile;
     this.headless = opts.headless ?? true;
   }
 
-  async run<T = unknown>(code: string, _options?: BwRunOptions): Promise<BwRunResult<T>> {
+  async run<T = unknown>(code: string, _options?: BrowserRunOptions): Promise<BrowserRunResult<T>> {
+    if (code.includes('selectorFound')) {
+      return {
+        ok: true,
+        result: { url: this.url, selectorFound: true } as T,
+      };
+    }
     // page.goto('url')
     const gotoMatch = code.match(/page\.goto\(['"]([^'"]+)['"]/);
     if (gotoMatch) {
@@ -56,8 +62,26 @@ export class MockBetterWrightClient implements BetterWrightClient {
     if (/snapshot\(/.test(code)) {
       return { ok: true, result: MOCK_INTERACTIVE_SNAPSHOT as unknown as T };
     }
+    if (code.includes('const locator = page.getBy')) {
+      return {
+        ok: true,
+        result: { count: 1, visible: true, enabled: true } as T,
+      };
+    }
     // 默认成功。
     return { ok: true };
+  }
+
+  async startLiveView(): Promise<{ ok: boolean; url?: string }> {
+    return { ok: true, url: 'http://127.0.0.1/mock-live-view' };
+  }
+
+  async waitForHandoff(): Promise<{ ok: boolean; action?: 'done' }> {
+    return { ok: true, action: 'done' };
+  }
+
+  async stopLiveView(): Promise<void> {
+    // 无资源需要释放。
   }
 
   async close(): Promise<void> {
@@ -75,10 +99,13 @@ export class MockBetterWrightClient implements BetterWrightClient {
   }
 
   /** 测试辅助：注册已知元素。 */
-  registerKnownElements(elements: MockBetterWrightClient['knownElements']): void {
+  registerKnownElements(elements: MockBrowserClient['knownElements']): void {
     this.knownElements.push(...elements);
   }
 }
+
+/** 兼容旧命名导出。 */
+export { MockBrowserClient as MockBetterWrightClient };
 
 /**
  * mock 模式下「页面」返回的关键元素清单。

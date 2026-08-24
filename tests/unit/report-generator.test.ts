@@ -9,6 +9,7 @@ describe('report-generator', () => {
   it('生成 result.json 与 summary.md', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ae2e-report-'));
     const { paths, result } = await generateReport({
+      runId: '20260729T030000000Z-a1b2c3d4',
       taskId: 'TASK-1',
       mode: 'incremental',
       startedAt: '2026-07-29T03:00:00.000Z',
@@ -35,10 +36,16 @@ describe('report-generator', () => {
     expect(summary).toContain('失败');
     expect(summary).toContain('product_defect');
     expect(result.summary.failed).toBe(1);
+    expect(result.schemaVersion).toBe(2);
+    expect(paths.runResultJsonPath).toContain('/runs/');
+    const historical = JSON.parse(await fs.readFile(paths.runResultJsonPath, 'utf8')) as TestResult;
+    expect(historical.runId).toBe(result.runId);
   });
 
   it('renderSummary 全通过时不含失败摘要', () => {
     const md = renderSummary({
+      schemaVersion: 2,
+      runId: '20260729T030000000Z-a1b2c3d4',
       taskId: 'T',
       status: 'passed',
       mode: 'incremental',
@@ -50,5 +57,17 @@ describe('report-generator', () => {
     });
     expect(md).toContain('通过');
     expect(md).not.toContain('失败摘要');
+  });
+
+  it('仅跳过用例不判定为通过', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ae2e-report-skipped-'));
+    const { result } = await generateReport({
+      runId: '20260729T030000001Z-a1b2c3d5',
+      taskId: 'T', mode: 'full', startedAt: '', finishedAt: '',
+      summary: { total: 1, passed: 0, failed: 0, skipped: 1, durationMs: 1 },
+      coverage: { acceptanceCriteria: 0, covered: 0, uncovered: [] },
+      failures: [], outputDirectory: dir,
+    });
+    expect(result.status).toBe('failed');
   });
 });

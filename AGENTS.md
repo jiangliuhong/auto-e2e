@@ -9,14 +9,14 @@ auto-e2e 是一个 AI 驱动的 E2E 测试生成与执行 CLI。当前链路包�
 1. 读取并校验 `task-spec.json`。
 2. 分析需求和代码变更。
 3. 生成结构化测试计划。
-4. 使用 BetterWright 探索页面并收集证据。
+4. 使用 Playwright 探索页面并收集证据。
 5. 生成 `@playwright/test` 测试。
 6. 使用 Playwright 执行测试。
 7. 分析失败并生成机器可读报告。
 
 测试代码生成属于项目核心能力。项目不负责生成或修改被测应用的业务代码。
 
-当前默认使用 Mock Agent 和 Mock Browser，使主链路可以离线运行。真实 AI 和浏览器分别通过 Pi SDK 与 BetterWright 的适配器接入。
+当前默认使用 Mock Agent 和 Mock Browser，使主链路可以离线运行。真实 AI 通过 Pi SDK 接入，真实浏览器直接基于 Playwright（支持本机 Google Chrome）接入。
 
 ## 2. 权威来源
 
@@ -42,7 +42,7 @@ auto-e2e 是一个 AI 驱动的 E2E 测试生成与执行 CLI。当前链路包�
 src/
 ├── agent/          # PiClient 接口、Mock/SDK 实现、需求与计划生成
 │   └── prompts/    # 当前 Prompt 模板文件
-├── betterwright/   # 页面探索、证据收集、会话和 BetterWright 适配器
+├── browser/        # 页面探索、证据收集、会话和原生 Playwright 适配器
 ├── commands/       # CLI 用例编排
 ├── config/         # 配置 Schema、默认值、加载和写入
 ├── domain/         # 跨模块共享的领域模型与 Zod Schema
@@ -63,11 +63,11 @@ src/
 
 - `domain/` 不依赖具体 AI、浏览器、Playwright 或 CLI 实现。
 - `agent/` 是模型能力入口。业务流程不得直接调用某个模型 SDK。
-- `betterwright/` 负责页面探索、登录、DOM/可访问性快照、截图和会话。
+- `browser/` 负责页面探索、登录、DOM/可访问性快照、截图和会话。
 - `playwright/` 负责生成与执行测试；生成器不得直接控制浏览器。
 - `report/` 消费结构化执行结果，不负责启动浏览器或被测应用。
 - `commands/` 是编排层，可以组合各模块，但不应承载可复用的核心算法。
-- 浏览器交互只能发生在 `betterwright/` 或 Playwright Runner 中。需求分析和测试计划阶段不得打开页面。
+- 浏览器交互只能发生在 `browser/` 或 Playwright Runner 中。需求分析和测试计划阶段不得打开页面。
 - 禁止循环依赖。
 
 新增具有业务语义、供应商绑定、I/O 副作用或多实现需求的能力时，应使用接口和适配器。纯工具库（例如 Zod、YAML 解析）可以直接使用，不需要为“可替换”机械地增加包装层。
@@ -101,7 +101,7 @@ src/
 
 ## 7. 浏览器与执行器
 
-BetterWright 当前用于真实页面探索、业务登录、页面理解、证据收集和会话管理。BetterWright 适配器中不得放置需求分析、测试规划或失败决策逻辑。
+Playwright Explorer 当前用于真实页面探索、业务登录、页面理解、证据收集和会话管理。浏览器适配器中不得放置需求分析、测试规划或失败决策逻辑。
 
 Playwright 是当前默认执行器，生成的测试使用 `@playwright/test`。执行参数应通过 `src/playwright/reporter-config.ts` 和配置模块构造，不要把仅属于 Playwright 配置文件的选项错误地作为 CLI 参数传递。
 
@@ -199,7 +199,7 @@ npm run build
 3. 它属于必需依赖、开发依赖还是可选适配器依赖。
 4. 是否显著增加安装、构建或运行成本。
 
-真实 Pi SDK 和 BetterWright 当前属于可选依赖；Mock 路径不应被迫加载它们。适合延迟加载的外部实现应继续保持延迟加载。
+真实 Pi SDK 当前属于可选依赖；Mock 路径不应被迫加载它。适合延迟加载的外部实现应继续保持延迟加载。
 
 ## 13. 文档与变更范围
 

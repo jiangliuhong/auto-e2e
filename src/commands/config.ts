@@ -16,7 +16,11 @@ export async function configShowCommand(opts: ConfigShowOptions): Promise<number
     if (!ctx.json) {
       ctx.logger.info(`配置文件：${configPath}`);
       ctx.logger.info(`项目：${config.project.name}（${config.project.baseUrl}）`);
-      ctx.logger.info(`启动命令：${config.project.startCommand}`);
+      ctx.logger.info(
+        config.project.manageApplication
+          ? `启动命令：${config.project.startCommand}`
+          : '应用管理：外部托管（跳过本地启动和健康检查）',
+      );
       ctx.logger.info(
         `Agent：${config.agent.implementation} / ${config.agent.provider}`,
       );

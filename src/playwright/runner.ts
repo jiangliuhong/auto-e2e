@@ -28,11 +28,17 @@ export interface RunPlaywrightOptions {
   testFiles?: string[];
   /** 目标应用基础 URL，写入临时 config 的 use.baseURL。仅 incremental 模式生效。 */
   baseURL?: string;
+  /** 浏览器通道（如 'chrome' / 'msedge' / 'chromium'）。 */
+  channel?: string;
+  /** 业务认证开启时注入的 Playwright storageState 文件。 */
+  storageStatePath?: string;
   /** 项目原有 Playwright 配置。full 模式会继承它。 */
   configFile?: string;
   /** 注入的 spawn（测试用）。 */
   spawnImpl?: typeof spawn;
   logger?: Logger;
+  /** 机器可读模式下把 Playwright 的 stdout 转发到 stderr，避免污染 JSON stdout。 */
+  machineReadable?: boolean;
 }
 
 export interface PlaywrightRunOutcome {
@@ -77,6 +83,8 @@ export async function runPlaywright(opts: RunPlaywrightOptions): Promise<Playwri
     mode === 'incremental' ? opts.baseURL : undefined,
     mode,
     baseConfigPath,
+    opts.storageStatePath,
+    opts.channel,
   );
   await fs.writeFile(tempConfigPath, configContent, 'utf8');
   args = ['--config', tempConfigPath];
@@ -92,7 +100,9 @@ export async function runPlaywright(opts: RunPlaywrightOptions): Promise<Playwri
       const child = spawnFn('npx', ['playwright', 'test', ...args], {
         cwd: opts.projectRoot,
         shell: false,
-        stdio: 'inherit',
+        stdio: opts.machineReadable
+          ? ['ignore', process.stderr, process.stderr]
+          : 'inherit',
       });
 
       child.on('error', (err: Error) => {

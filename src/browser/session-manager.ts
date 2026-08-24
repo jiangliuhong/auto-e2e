@@ -1,14 +1,14 @@
 /**
- * 浏览器 Session/Profile 管理与工厂（plan §3.2, §6.2）。
+ * 浏览器 Session/Profile 管理与工厂。
  *
  * - profile：独立身份（独立 cookie jar），如 admin。
  * - session：同一 profile 内的并行 lane。
  *
- * 根据配置选择 mock 或 real 实现。
+ * 根据配置选择 mock 或 real 原生 Playwright 实现。
  */
-import type { BetterWrightClient, BetterWrightClientOptions } from './betterwright-client.js';
-import { MockBetterWrightClient } from './mock-betterwright-client.js';
-import { RealBetterWrightClient } from './real-betterwright-client.js';
+import type { BrowserClient, BrowserClientOptions } from './browser-client.js';
+import { MockBrowserClient } from './mock-browser-client.js';
+import { RealBrowserClient } from './real-browser-client.js';
 import type { BrowserConfig } from '../config/config-schema.js';
 
 export interface SessionManagerOptions {
@@ -16,23 +16,25 @@ export interface SessionManagerOptions {
 }
 
 export class SessionManager {
-  private clients = new Map<string, BetterWrightClient>();
+  private clients = new Map<string, BrowserClient>();
 
   constructor(private readonly opts: SessionManagerOptions) {}
 
   /** 获取（或创建）指定 profile 的 client。 */
-  getOrCreate(profile?: string): BetterWrightClient {
+  getOrCreate(profile?: string): BrowserClient {
     const key = profile ?? this.opts.browser.sessionProfile;
     let client = this.clients.get(key);
     if (!client) {
-      const clientOpts: BetterWrightClientOptions = {
+      const clientOpts: BrowserClientOptions = {
         profile: key,
         headless: this.opts.browser.headless,
+        channel: this.opts.browser.channel,
+        timeout: this.opts.browser.timeout,
       };
       client =
         this.opts.browser.implementation === 'real'
-          ? new RealBetterWrightClient(clientOpts)
-          : new MockBetterWrightClient(clientOpts);
+          ? new RealBrowserClient(clientOpts)
+          : new MockBrowserClient(clientOpts);
       this.clients.set(key, client);
     }
     return client;

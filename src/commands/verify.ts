@@ -9,18 +9,27 @@ import { loadConfig } from '../config/config-loader.js';
 import type { TaskSpec } from '../domain/task-spec.js';
 import { createPiClient } from '../agent/pi-client-factory.js';
 import type { RequirementAnalysisInput } from '../agent/pi-client.js';
-import { SessionManager } from '../betterwright/session-manager.js';
-import { explore, assertExplorationUsable } from '../betterwright/explorer.js';
-import { saveExploration } from '../betterwright/evidence-collector.js';
+import { SessionManager } from '../browser/session-manager.js';
+import { explore, assertExplorationUsable } from '../browser/explorer.js';
+import { saveExploration } from '../browser/evidence-collector.js';
 import { generateTestFile } from '../playwright/test-generator.js';
 import { runPlaywright } from '../playwright/runner.js';
 import { parsePlaywrightJson, computeCoverage } from '../playwright/result-parser.js';
 import type { ReporterConfigOptions } from '../playwright/reporter-config.js';
-import { generateReport, printConsoleSummary } from '../report/report-generator.js';
+import {
+  generateReport,
+  printConsoleSummary,
+  publishLatest,
+} from '../report/report-generator.js';
 import { ensureAppRunning } from '../project/process-manager.js';
 import { readTaskSpec } from './_shared.js';
 import { readChangedFiles, isGitRepo, getRecentCommitMessage } from '../git/git-diff-reader.js';
 import { analyzeChanges } from '../git/change-analyzer.js';
+import { createRunId } from '../runtime/run-id.js';
+import { writeEvaluationMetrics } from '../evaluation/metrics-writer.js';
+import { withProgress } from '../runtime/progress.js';
+import type { FailureEntry } from '../domain/test-result.js';
+import { AuthenticationManager } from '../auth/authentication-manager.js';
 
 export interface VerifyOptions extends RunOptions {
   spec?: string;
@@ -29,22 +38,38 @@ export interface VerifyOptions extends RunOptions {
 
 export async function verifyCommand(opts: VerifyOptions): Promise<number> {
   return runCommand<VerifyResult>(opts, async (ctx) => {
+    ctx.logger.info('开始完整验证：分析 → 探索 → 生成 → 执行 → 报告');
     // 1. 加载配置
     const config = await loadConfig({ projectRoot: ctx.projectRoot });
+    const commandStartedMs = Date.now();
     const startedAt = new Date().toISOString();
+    const runId = createRunId();
+
+    // 在模型调用、页面探索和业务写操作前同时验证两套独立认证状态。
+    const authentication = new AuthenticationManager({
+      projectRoot: ctx.projectRoot,
+      config,
+    });
+    const authenticationState = await authentication.assertReady(['explorer', 'runner']);
 
     // 2. 获取 task-spec：优先读取 --spec；--changed 模式下基于 Git Diff 推导。
     const taskSpec = await resolveTaskSpec(ctx.projectRoot, opts);
 
     // 3-4. 需求分析（含 Git Diff 概要）+ 5. test-plan
-    const client = createPiClient({ agent: config.agent });
-    const analysisInput = await buildAnalysisInput(ctx.projectRoot, taskSpec, opts);
-    const analysis = await client.analyzeRequirement(analysisInput);
-    const testPlan = await client.createTestPlan({
-      taskSpec,
-      analysis,
-      maxTestsPerTask: config.generation.maxTestsPerTask,
+    const client = createPiClient({
+      agent: config.agent, projectRoot: ctx.projectRoot, knowledge: config.knowledge,
     });
+    const analysisInput = await buildAnalysisInput(ctx.projectRoot, taskSpec, opts);
+    const analysis = await withProgress(ctx.logger, '分析需求与代码变更', () =>
+      client.analyzeRequirement(analysisInput),
+    );
+    const testPlan = await withProgress(ctx.logger, '生成测试计划', () =>
+      client.createTestPlan({
+        taskSpec,
+        analysis,
+        maxTestsPerTask: config.generation.maxTestsPerTask,
+      }),
+    );
 
     const taskDir = ctx.resolve(
       joinRel(config.playwright.generatedDirectory, taskSpec.taskId),
@@ -56,56 +81,72 @@ export async function verifyCommand(opts: VerifyOptions): Promise<number> {
     );
 
     // 6-7. 启动/连接目标应用 + 健康检查
-    const app = await ensureAppRunning({
-      projectRoot: ctx.projectRoot,
-      startCommand: taskSpec.startCommand ?? config.project.startCommand,
-      healthUrl: config.project.healthUrl,
-      startupTimeout: config.project.startupTimeout,
-      logger: ctx.logger,
-    });
+    const app = await withProgress(ctx.logger, '检查并启动目标应用', () =>
+      ensureAppRunning({
+        projectRoot: ctx.projectRoot,
+        manageApplication: config.project.manageApplication,
+        startCommand: taskSpec.startCommand ?? config.project.startCommand,
+        healthUrl: config.project.healthUrl,
+        startupTimeout: config.project.startupTimeout,
+        logger: ctx.logger,
+      }),
+    );
 
     try {
       // 8. 探索页面
       const manager = new SessionManager({ browser: config.browser });
       const bwClient = manager.getOrCreate(config.browser.sessionProfile);
       let exploration;
+      const explorerStartedMs = Date.now();
+      let explorerDurationMs = 0;
       try {
-        exploration = await explore(
-          {
-            taskId: taskSpec.taskId,
-            baseUrl: taskSpec.baseUrl ?? config.project.baseUrl,
-            routes: taskSpec.changedRoutes ?? ['/'],
-            acceptanceCriteria: taskSpec.acceptanceCriteria,
-            testCases: testPlan.testCases as unknown[],
-            sessionProfile: config.browser.sessionProfile,
-          },
-          { client: bwClient, session: config.browser.sessionProfile },
+        exploration = await withProgress(ctx.logger, '探索页面并收集证据', () =>
+          explore(
+            {
+              taskId: taskSpec.taskId,
+              baseUrl: taskSpec.baseUrl ?? config.project.baseUrl,
+              routes: taskSpec.changedRoutes ?? ['/'],
+              acceptanceCriteria: taskSpec.acceptanceCriteria,
+              testCases: testPlan.testCases as unknown[],
+              sessionProfile: config.browser.sessionProfile,
+            },
+            {
+              client: bwClient,
+              session: config.browser.sessionProfile,
+              timeoutMs: config.browser.timeout,
+              decideAction: (input) => client.decideExplorationAction(input),
+            },
+          ),
         );
         assertExplorationUsable(exploration);
         await saveExploration(taskDir, exploration);
       } finally {
+        explorerDurationMs = Date.now() - explorerStartedMs;
         await manager.closeAll();
       }
 
       // 9. 生成测试
-      const gen = await generateTestFile({
-        projectRoot: ctx.projectRoot,
-        generatedDirectory: config.playwright.generatedDirectory,
-        client,
-        taskSpec,
-        testPlan,
-        exploration,
-        preferTestId: config.generation.preferTestId,
-        overwrite: config.generation.overwriteGeneratedTests,
-        logger: ctx.logger,
-      });
+      const gen = await withProgress(ctx.logger, '生成并校验 Playwright 测试', () =>
+        generateTestFile({
+          projectRoot: ctx.projectRoot,
+          generatedDirectory: config.playwright.generatedDirectory,
+          client,
+          taskSpec,
+          testPlan,
+          exploration,
+          preferTestId: config.generation.preferTestId,
+          overwrite: config.generation.overwriteGeneratedTests,
+          logger: ctx.logger,
+        }),
+      );
 
       // 10. 执行测试（增量模式：临时 config，含 reporter 与 use 选项）
       const reportsDir = ctx.resolve(config.report.outputDirectory);
+      const runDirectory = path.join(reportsDir, 'runs', runId);
       const reporter: ReporterConfigOptions = {
-        jsonReportPath: path.join(reportsDir, 'latest', 'playwright.json'),
-        junitReportPath: path.join(reportsDir, 'latest', 'junit.xml'),
-        htmlReportDir: path.join(reportsDir, 'latest', 'html'),
+        jsonReportPath: path.join(runDirectory, 'playwright.json'),
+        junitReportPath: path.join(runDirectory, 'junit.xml'),
+        htmlReportDir: path.join(runDirectory, 'html'),
         formats: config.report.formats,
         retries: config.playwright.retries,
         workers: config.playwright.workers,
@@ -114,17 +155,22 @@ export async function verifyCommand(opts: VerifyOptions): Promise<number> {
         video: config.playwright.video,
       };
 
-      const outcome = await runPlaywright({
-        projectRoot: ctx.projectRoot,
-        reporter,
-        mode: 'incremental',
-        testFiles: [gen.specPath],
-        baseURL: taskSpec.baseUrl ?? config.project.baseUrl,
-        logger: ctx.logger,
-      });
+      const outcome = await withProgress(ctx.logger, '执行 Playwright 测试', () =>
+        runPlaywright({
+          projectRoot: ctx.projectRoot,
+          reporter,
+          mode: 'incremental',
+          testFiles: [gen.specPath],
+          baseURL: taskSpec.baseUrl ?? config.project.baseUrl,
+          channel: config.browser.channel,
+          storageStatePath: authenticationState.runnerStatePath,
+          logger: ctx.logger,
+          machineReadable: ctx.json,
+        }),
+      );
 
       // V-7.2：未执行任何用例 → Playwright 异常，退出码 8。
-      if (outcome.exitCode === 8 || outcome.summary.total === 0) {
+      if (outcome.exitCode > 1 || !outcome.report || outcome.summary.total === 0) {
         throw new AutoE2EError(
           ExitCode.PlaywrightError,
           'Playwright 未执行任何用例（可能为编译失败或配置错误），已生成的测试见：' +
@@ -141,24 +187,28 @@ export async function verifyCommand(opts: VerifyOptions): Promise<number> {
             durationMs: 0,
           };
 
-      const failures = [];
-      for (const raw of parsed.rawFailures) {
-        failures.push(
-          await client.analyzeFailure({
-            testTitle: raw.test,
-            errorMessage: raw.message,
-            errorStack: raw.stack,
-          }),
-        );
-      }
+      const failures: FailureEntry[] = [];
+      await withProgress(ctx.logger, '分析测试失败', async () => {
+        for (const raw of parsed.rawFailures) {
+          failures.push(
+            await client.analyzeFailure({
+              testTitle: raw.test,
+              errorMessage: raw.message,
+              errorStack: raw.stack,
+              artifacts: await existingArtifacts(ctx.projectRoot, raw.artifacts),
+            }),
+          );
+        }
+      });
 
       const coverage = computeCoverage(
         taskSpec.acceptanceCriteria,
-        testPlan.testCases.map((t) => t.title),
+        testPlan.testCases.flatMap((t) => t.acceptanceCriteria),
       );
 
       const finishedAt = new Date().toISOString();
       const { paths, result } = await generateReport({
+        runId,
         taskId: taskSpec.taskId,
         mode: 'incremental',
         startedAt,
@@ -168,11 +218,44 @@ export async function verifyCommand(opts: VerifyOptions): Promise<number> {
         failures,
         outputDirectory: reportsDir,
         logger: ctx.logger,
+        publishLatest: false,
       });
+      const telemetry = client.getTelemetry();
+      await writeEvaluationMetrics(ctx.projectRoot, {
+        schemaVersion: 1,
+        runId,
+        taskId: taskSpec.taskId,
+        autoE2EVersion: '0.2.0',
+        mode: 'incremental',
+        requirementCount: taskSpec.acceptanceCriteria.length,
+        generatedTestCount: testPlan.testCases.length,
+        coveredRequirementCount: coverage.covered,
+        passedTestCount: result.summary.passed,
+        failedTestCount: result.summary.failed,
+        skippedTestCount: result.summary.skipped,
+        totalDurationMs: Date.now() - commandStartedMs,
+        explorerDurationMs,
+        llmCallCount: telemetry.calls,
+        llmRetryCount: telemetry.retries,
+        tokenUsage: telemetry.tokenUsage,
+        agent: {
+          implementation: config.agent.implementation,
+          provider: config.agent.provider,
+          model: config.agent.model,
+        },
+        browser: {
+          implementation: config.browser.implementation,
+          playwrightVersion: '1.48.0',
+          betterwrightVersion: null,
+        },
+        promptHashes: telemetry.promptHashes,
+        knowledgeHashes: telemetry.knowledgeHashes,
+      });
+      await publishLatest(reportsDir, runId);
 
       printConsoleSummary(result, ctx.logger);
 
-      const exitCode = result.summary.failed > 0 ? ExitCode.TestsFailed : ExitCode.Ok;
+      const exitCode = result.status === 'failed' ? ExitCode.TestsFailed : ExitCode.Ok;
       return {
         exitCode,
         json: {
@@ -182,6 +265,9 @@ export async function verifyCommand(opts: VerifyOptions): Promise<number> {
           summary: result.summary,
           coverage: { covered: coverage.covered, total: coverage.acceptanceCriteria },
           resultJsonPath: paths.resultJsonPath,
+          runId,
+          runDirectory: paths.runDirectory,
+          runResultJsonPath: paths.runResultJsonPath,
         },
         message: `verify 完成：${result.status === 'passed' ? '通过' : '失败'}（${result.summary.passed}/${result.summary.total}）`,
       };
@@ -298,6 +384,25 @@ interface VerifyResult {
   summary: { total: number; passed: number; failed: number; skipped: number; durationMs: number };
   coverage: { covered: number; total: number };
   resultJsonPath: string;
+  runId: string;
+  runDirectory: string;
+  runResultJsonPath: string;
+}
+
+async function existingArtifacts(
+  projectRoot: string,
+  artifacts?: { screenshot?: string; trace?: string; video?: string },
+): Promise<typeof artifacts> {
+  if (!artifacts) return undefined;
+  const entries = await Promise.all(
+    Object.entries(artifacts).map(async ([key, value]) => [
+      key,
+      value && await fs.access(path.resolve(projectRoot, value))
+        .then(() => path.resolve(projectRoot, value)).catch(() => undefined),
+    ] as const),
+  );
+  const filtered = Object.fromEntries(entries.filter(([, value]) => value));
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
 }
 
 function joinRel(...parts: string[]): string {

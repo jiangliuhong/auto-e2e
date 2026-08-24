@@ -1,7 +1,7 @@
 /**
  * task-spec.json 规范描述器：从 TaskSpecSchema（Zod）运行时反射生成结构化字段规范。
  *
- * 设计目的：让 CLI（`auto-e2e spec schema`）能把权威规范输出给 Codex 等调用方，
+ * 设计目的：让 CLI（`auto-e2e spec schema`）能把权威规范输出给自动化调用方，
  * 避免规范散落在静态文档里与代码脱节。
  *
  * 反射来源：字段名 / 类型 / 是否必填 全部由 TaskSpecSchema 决定；

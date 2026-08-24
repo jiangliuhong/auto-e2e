@@ -35,6 +35,8 @@ export const CoverageSchema = z.object({
 });
 
 export const TestResultSchema = z.object({
+  schemaVersion: z.literal(2),
+  runId: z.string().regex(/^\d{8}T\d{9}Z-[a-f0-9]{8}$/),
   taskId: z.string(),
   status: z.enum(['passed', 'failed']),
   mode: z.enum(['incremental', 'full']),

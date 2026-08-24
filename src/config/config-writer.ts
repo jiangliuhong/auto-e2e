@@ -39,6 +39,7 @@ export const GITIGNORE_ENTRIES = [
   '.auto-e2e/artifacts/',
   '.auto-e2e/reports/',
   '.auto-e2e/generated/',
+  '.auto-e2e/evaluation/',
 ];
 
 export async function ensureDir(dir: string): Promise<void> {
@@ -81,6 +82,8 @@ export async function writeInitArtifacts(
     autoE2eDir,
     path.join(autoE2eDir, 'generated'),
     path.join(autoE2eDir, 'reports'),
+    path.join(autoE2eDir, 'reports', 'runs'),
+    path.join(autoE2eDir, 'evaluation', 'runs'),
     path.join(autoE2eDir, 'artifacts'),
     path.join(autoE2eDir, 'auth'),
   ];

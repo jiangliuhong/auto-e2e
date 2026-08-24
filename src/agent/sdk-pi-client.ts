@@ -18,20 +18,59 @@ import type {
   GenerateTestInput,
   GeneratedTest,
   FailureAnalysisInput,
+  PiTelemetrySnapshot,
 } from './pi-client.js';
 import type { TestPlan } from '../domain/test-plan.js';
 import type { FailureEntry } from '../domain/test-result.js';
 import { AutoE2EError } from '../runtime/exit-codes.js';
-import { validateTestPlan } from '../domain/test-plan.js';
-import { isFailureCategory } from '../domain/failure-category.js';
+import { TestCaseSchema, TestPlanSchema } from '../domain/test-plan.js';
+import { FailureEntrySchema } from '../domain/test-result.js';
+import { z } from 'zod';
+import { PromptLoader, type PromptName } from './prompt-loader.js';
+import { KnowledgeLoader } from './knowledge-loader.js';
+import type { KnowledgeConfig } from '../config/config-schema.js';
+import {
+  ExplorationDecisionSchema,
+  type ExplorationDecision,
+  type ExplorationDecisionInput,
+} from '../domain/exploration-action.js';
 
 export interface SdKPiClientOptions {
   /** 自定义 system prompt 前缀。 */
   systemPrompt?: string;
+  projectRoot?: string;
+  knowledge?: KnowledgeConfig;
 }
 
+/**
+ * 模型偶尔会把只有一项的 expected 压缩成字符串。仅在 AI 适配器边界兼容
+ * 这种无歧义的表示，转换后仍由领域 TestPlanSchema 完整校验。
+ */
+export const ModelTestPlanSchema = TestPlanSchema.extend({
+  testCases: z.array(
+    TestCaseSchema.extend({
+      expected: z
+        .union([z.array(z.string().min(1)), z.string().min(1)])
+        .transform((value) => (Array.isArray(value) ? value : [value])),
+    }),
+  ).min(1),
+});
+
 export class SdKPiClient implements PiClient {
-  constructor(private readonly opts: SdKPiClientOptions = {}) {}
+  private readonly loader: PromptLoader;
+  private readonly knowledgeLoader: KnowledgeLoader;
+  private readonly telemetry: PiTelemetrySnapshot = {
+    calls: 0, retries: 0, durationMs: 0, tokenUsage: null,
+    promptHashes: {}, knowledgeHashes: {},
+  };
+
+  constructor(private readonly opts: SdKPiClientOptions = {}) {
+    this.loader = new PromptLoader(opts.projectRoot ?? process.cwd());
+    this.knowledgeLoader = new KnowledgeLoader(
+      opts.projectRoot ?? process.cwd(),
+      opts.knowledge ?? { enabled: false, maxFiles: 3, maxCharacters: 12000 },
+    );
+  }
 
   /**
    * 动态加载 Pi SDK。未安装时抛 AuthFailed（提示用户运行 auth login 或安装 SDK）。
@@ -78,64 +117,97 @@ export class SdKPiClient implements PiClient {
   }
 
   async analyzeRequirement(input: RequirementAnalysisInput): Promise<RequirementAnalysis> {
-    const prompt = buildRequirementPrompt(input);
-    const raw = await this.promptJson<{
-      understanding: string;
-      scenarios: string[];
-      identifiedRisks: string[];
-    }>(prompt, 'output_requirement_analysis');
-    return raw;
+    return this.callValidated<RequirementAnalysis>(
+      'analyze-requirement',
+      await this.variables(input),
+      'output_requirement_analysis',
+      z.object({
+        understanding: z.string(),
+        scenarios: z.array(z.string()),
+        identifiedRisks: z.array(z.string()),
+      }),
+    );
   }
 
   async createTestPlan(input: TestPlanInput): Promise<TestPlan> {
-    const prompt = buildTestPlanPrompt(input);
-    const raw = await this.promptJson<unknown>(prompt, 'output_test_plan');
-    const result = validateTestPlan(raw);
-    if (!result.success || !result.plan) {
-      throw new AutoE2EError(3, `test-plan 生成校验失败：${result.errors.join('; ')}`);
-    }
-    return result.plan;
+    return this.callValidated<TestPlan>(
+      'create-test-plan',
+      await this.variables(input),
+      'output_test_plan',
+      ModelTestPlanSchema,
+    );
   }
 
   async generateTest(input: GenerateTestInput): Promise<GeneratedTest> {
-    const prompt = buildGenerateTestPrompt(input);
-    const raw = await this.promptJson<{ taskId: string; code: string; notes: string[] }>(
-      prompt,
+    return this.callValidated(
+      'generate-test',
+      await this.variables(input),
       'output_generated_test',
+      z.object({ taskId: z.string(), code: z.string(), notes: z.array(z.string()) }),
     );
-    if (
-      !raw ||
-      typeof raw.taskId !== 'string' ||
-      typeof raw.code !== 'string' ||
-      !Array.isArray(raw.notes)
-    ) {
-      throw new AutoE2EError(3, '测试生成输出结构非法：需要 taskId/code/notes');
-    }
-    return raw;
+  }
+
+  async decideExplorationAction(
+    input: ExplorationDecisionInput,
+  ): Promise<ExplorationDecision> {
+    return this.callValidated(
+      'decide-exploration-action',
+      { INPUT_JSON: input },
+      'output_exploration_action',
+      ExplorationDecisionSchema,
+    );
   }
 
   async analyzeFailure(input: FailureAnalysisInput): Promise<FailureEntry> {
-    const prompt = buildFailurePrompt(input);
-    const raw = await this.promptJson<{
-      test: string;
-      category: string;
-      message: string;
-      expected?: string;
-      actual?: string;
-      confidence: number;
-    }>(prompt, 'output_failure_analysis');
-    if (!isFailureCategory(raw.category)) {
-      raw.category = 'unknown';
+    const raw = await this.callValidated(
+      'analyze-failure',
+      { INPUT_JSON: input },
+      'output_failure_analysis',
+      FailureEntrySchema.omit({ artifacts: true }).extend({ test: z.string() }),
+    );
+    return { ...raw, test: input.testTitle, artifacts: input.artifacts };
+  }
+
+  getTelemetry(): PiTelemetrySnapshot {
+    return structuredClone(this.telemetry);
+  }
+
+  private async variables(
+    input: { taskSpec: import('../domain/task-spec.js').TaskSpec },
+  ): Promise<Record<string, unknown>> {
+    const selected = await this.knowledgeLoader.select(input.taskSpec);
+    Object.assign(this.telemetry.knowledgeHashes, selected.hashes);
+    return { INPUT_JSON: input, KNOWLEDGE: selected.content || '无匹配知识文件。' };
+  }
+
+  private async callValidated<T>(
+    name: PromptName,
+    variables: Record<string, unknown>,
+    toolName: string,
+    schema: {
+      safeParse(value: unknown):
+        | { success: true; data: T }
+        | { success: false; error: z.ZodError };
+    },
+  ): Promise<T> {
+    const started = Date.now();
+    this.telemetry.calls++;
+    const rendered = await this.loader.render(name, variables);
+    this.telemetry.promptHashes[name] = rendered.hash;
+    try {
+      let lastErrors = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const suffix = attempt === 0 ? '' : `\n\n上一次输出不合法：${lastErrors}。请修正后重新输出。`;
+        const raw = await this.promptJson<unknown>(rendered.content + suffix, toolName);
+        const parsed = schema.safeParse(raw);
+        if (parsed.success) return parsed.data;
+        lastErrors = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+        if (attempt === 0) this.telemetry.retries++;
+      }
+      throw new AutoE2EError(3, `模型输出校验失败：${lastErrors}`);
+    } finally {
+      this.telemetry.durationMs += Date.now() - started;
     }
-    return {
-      test: input.testTitle,
-      category: raw.category as FailureEntry['category'],
-      message: raw.message,
-      expected: raw.expected,
-      actual: raw.actual,
-      confidence: raw.confidence,
-      artifacts: input.artifacts,
-    };
   }
 
   /**
@@ -168,9 +240,17 @@ export class SdKPiClient implements PiClient {
 
     let output: T | undefined;
     const unsubscribe = session.subscribe(
-      (event: { type: string; toolName?: string; result?: { details?: unknown } }) => {
+      (event) => {
         if (event.type === 'tool_execution_end' && event.toolName === toolName) {
           output = event.result?.details as T;
+        }
+        if (
+          event.type === 'turn_end' &&
+          event.message.role === 'assistant' &&
+          typeof event.message.usage.totalTokens === 'number'
+        ) {
+          this.telemetry.tokenUsage =
+            (this.telemetry.tokenUsage ?? 0) + event.message.usage.totalTokens;
         }
       },
     );
@@ -187,57 +267,4 @@ export class SdKPiClient implements PiClient {
       session.dispose();
     }
   }
-}
-
-// 以下 prompt 构造函数与 prompts/*.md 内容保持一致，供 SDK 直接使用。
-function buildRequirementPrompt(input: RequirementAnalysisInput): string {
-  const s = input.taskSpec;
-  return [
-    `任务：${s.title}`,
-    `需求：${s.requirement}`,
-    `验收标准：\n- ${s.acceptanceCriteria.join('\n- ')}`,
-    input.changeSummary ? `变更文件数：${input.changeSummary.fileCount}` : '',
-    input.recentCommitMessage ? `最近提交：${input.recentCommitMessage}` : '',
-    '输出 understanding / scenarios / identifiedRisks。',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function buildTestPlanPrompt(input: TestPlanInput): string {
-  const s = input.taskSpec;
-  return [
-    `任务：${s.title}`,
-    `需求：${s.requirement}`,
-    `验收标准：\n- ${s.acceptanceCriteria.join('\n- ')}`,
-    `变更路由：${s.changedRoutes?.join(', ') ?? ''}`,
-    `需求分析：${JSON.stringify(input.analysis)}`,
-    `最多生成 ${input.maxTestsPerTask} 个用例。`,
-    '输出符合 test-plan 规范的 JSON（taskId/scope/testCases/uncoveredCriteria/risks）。',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function buildGenerateTestPrompt(input: GenerateTestInput): string {
-  return [
-    '根据以下完整上下文生成可直接运行的 @playwright/test TypeScript 测试。',
-    `任务需求：${JSON.stringify(input.taskSpec)}`,
-    `测试计划：${JSON.stringify(input.testPlan)}`,
-    `页面探索结果（必须优先使用其中的稳定定位器）：${JSON.stringify(input.exploration)}`,
-    `优先 testid：${input.preferTestId}`,
-    'code 必须包含完整 import、测试步骤和断言；输出 taskId / code / notes。',
-  ].join('\n');
-}
-
-function buildFailurePrompt(input: FailureAnalysisInput): string {
-  return [
-    `测试：${input.testTitle}`,
-    `错误：${input.errorMessage}`,
-    input.expected ? `预期：${input.expected}` : '',
-    input.actual ? `实际：${input.actual}` : '',
-    '输出 test/category/message/expected/actual/confidence。',
-  ]
-    .filter(Boolean)
-    .join('\n');
 }

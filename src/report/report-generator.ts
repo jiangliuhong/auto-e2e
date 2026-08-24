@@ -9,16 +9,25 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { TestResult, FailureEntry, Coverage } from '../domain/test-result.js';
+import {
+  TestResultSchema,
+  type TestResult,
+  type FailureEntry,
+  type Coverage,
+} from '../domain/test-result.js';
 import type { Logger } from '../runtime/logger.js';
 
 export interface ReportPaths {
+  runId: string;
+  runDirectory: string;
   latestDir: string;
   resultJsonPath: string;
+  runResultJsonPath: string;
   summaryPath: string;
 }
 
 export interface GenerateReportInput {
+  runId: string;
   taskId: string;
   mode: 'incremental' | 'full';
   startedAt: string;
@@ -28,36 +37,77 @@ export interface GenerateReportInput {
   failures: FailureEntry[];
   outputDirectory: string;
   logger?: Logger;
+  publishLatest?: boolean;
 }
 
 export async function generateReport(input: GenerateReportInput): Promise<{
   paths: ReportPaths;
   result: TestResult;
 }> {
+  const runDirectory = path.resolve(input.outputDirectory, 'runs', input.runId);
   const latestDir = path.resolve(input.outputDirectory, 'latest');
-  await fs.mkdir(latestDir, { recursive: true });
+  await fs.mkdir(runDirectory, { recursive: true });
 
-  const result: TestResult = {
+  const result = TestResultSchema.parse({
+    schemaVersion: 2,
+    runId: input.runId,
     taskId: input.taskId,
-    status: input.summary.failed > 0 ? 'failed' : 'passed',
+    status:
+      input.summary.total > 0 && input.summary.passed === input.summary.total
+        ? 'passed'
+        : 'failed',
     mode: input.mode,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
     summary: input.summary,
     coverage: input.coverage,
     failures: input.failures,
-  };
+  });
 
-  const resultJsonPath = path.join(latestDir, 'result.json');
-  await fs.writeFile(resultJsonPath, JSON.stringify(result, null, 2) + '\n', 'utf8');
+  const runResultJsonPath = path.join(runDirectory, 'result.json');
+  await fs.writeFile(runResultJsonPath, JSON.stringify(result, null, 2) + '\n', 'utf8');
 
-  const summaryPath = path.join(latestDir, 'summary.md');
-  await fs.writeFile(summaryPath, renderSummary(result), 'utf8');
+  const runSummaryPath = path.join(runDirectory, 'summary.md');
+  await fs.writeFile(runSummaryPath, renderSummary(result), 'utf8');
+  if (input.publishLatest ?? true) {
+    await publishLatest(input.outputDirectory, input.runId);
+  }
 
   return {
-    paths: { latestDir, resultJsonPath, summaryPath },
+    paths: {
+      runId: input.runId,
+      runDirectory,
+      latestDir,
+      resultJsonPath: path.join(latestDir, 'result.json'),
+      runResultJsonPath,
+      summaryPath: path.join(latestDir, 'summary.md'),
+    },
     result,
   };
+}
+
+export async function publishLatest(outputDirectory: string, runId: string): Promise<void> {
+  const root = path.resolve(outputDirectory);
+  const source = path.join(root, 'runs', runId);
+  const latest = path.join(root, 'latest');
+  const next = path.join(root, `latest.next-${runId}`);
+  const previous = path.join(root, `latest.previous-${runId}`);
+  await fs.rm(next, { recursive: true, force: true });
+  await fs.rm(previous, { recursive: true, force: true });
+  await fs.cp(source, next, { recursive: true });
+  const hadLatest = await fs.access(latest).then(() => true).catch(() => false);
+  try {
+    if (hadLatest) await fs.rename(latest, previous);
+    await fs.rename(next, latest);
+    await fs.rm(previous, { recursive: true, force: true });
+  } catch (error) {
+    await fs.rm(next, { recursive: true, force: true });
+    if (hadLatest) {
+      const latestExists = await fs.access(latest).then(() => true).catch(() => false);
+      if (!latestExists) await fs.rename(previous, latest).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 export function renderSummary(result: TestResult): string {
@@ -65,6 +115,7 @@ export function renderSummary(result: TestResult): string {
   lines.push(`# 测试报告：${result.taskId}`);
   lines.push('');
   lines.push(`- 状态：**${result.status === 'passed' ? '通过' : '失败'}**`);
+  lines.push(`- Run ID：${result.runId}`);
   lines.push(`- 模式：${result.mode === 'incremental' ? '增量' : '全量'}`);
   lines.push(`- 时间：${result.startedAt} → ${result.finishedAt}`);
   lines.push(`- 用例总数：${result.summary.total}`);

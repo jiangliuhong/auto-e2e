@@ -15,6 +15,10 @@ import type { TaskSpec } from '../domain/task-spec.js';
 import type { TestPlan } from '../domain/test-plan.js';
 import type { ExploreResult } from '../domain/explore-result.js';
 import type { FailureEntry } from '../domain/test-result.js';
+import type {
+  ExplorationDecision,
+  ExplorationDecisionInput,
+} from '../domain/exploration-action.js';
 
 /** 需求分析的上下文输入。 */
 export interface RequirementAnalysisInput {
@@ -80,6 +84,15 @@ export interface AuthStatus {
   message?: string;
 }
 
+export interface PiTelemetrySnapshot {
+  calls: number;
+  retries: number;
+  durationMs: number;
+  tokenUsage: number | null;
+  promptHashes: Record<string, string>;
+  knowledgeHashes: Record<string, string>;
+}
+
 export interface PiClient {
   /** 检查 ChatGPT OAuth 登录状态。 */
   checkAuth(): Promise<AuthStatus>;
@@ -96,8 +109,14 @@ export interface PiClient {
   /** 生成 Playwright 测试代码。 */
   generateTest(input: GenerateTestInput): Promise<GeneratedTest>;
 
+  /** 基于当前已验证页面元素选择下一步安全探索动作。 */
+  decideExplorationAction(
+    input: ExplorationDecisionInput,
+  ): Promise<ExplorationDecision>;
+
   /** 失败分类。 */
   analyzeFailure(input: FailureAnalysisInput): Promise<FailureEntry>;
+  getTelemetry(): PiTelemetrySnapshot;
 }
 
 /**

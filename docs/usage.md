@@ -1,11 +1,11 @@
 # auto-e2e 使用说明
 
-`auto-e2e` 是一个自动化端到端（E2E）测试生成与执行 CLI。它读取任务规格（`task-spec.json`），结合 Git Diff 分析需求与代码变更，探索真实页面，生成可运行的 `@playwright/test` 测试，执行后输出统一报告，并通过退出码与 `result.json` 把结果交回上层调用方（如 Codex）。
+`auto-e2e` 是一个自动化端到端（E2E）测试生成与执行 CLI。它读取任务规格（`task-spec.json`），结合 Git Diff 分析需求与代码变更，探索真实页面，生成可运行的 `@playwright/test` 测试，执行后输出统一报告，并通过退出码与 `result.json` 服务任意机器调用方。它不编排调用方工作流，也不修改被测应用业务代码。
 
 整体由三个能力组合而成：
 
 - **Pi**（ChatGPT OAuth）：负责需求分析与测试生成。
-- **BetterWright**：负责真实页面探索，收集稳定定位器与证据。
+- **原生 Playwright / 本机 Chrome**：负责真实页面探索，收集稳定定位器与证据。
 - **@playwright/test**：负责正式测试执行与报告。
 
 ---
@@ -18,7 +18,7 @@
 - [命令参考](#命令参考)
   - [全局选项](#全局选项)
   - [init](#init)
-  - [auth login / auth browser](#auth-login--auth-browser)
+  - [auth login / auth browser / auth status](#auth-login--auth-browser--auth-status)
   - [generate](#generate)
   - [verify](#verify)
   - [run](#run)
@@ -30,7 +30,7 @@
 - [输出与报告](#输出与报告)
 - [退出码](#退出码)
 - [接入真实 AI 与浏览器](#接入真实-ai-与浏览器)
-- [Codex 集成](#codex-集成)
+- [自动化调用](#自动化调用)
 
 ---
 
@@ -105,7 +105,7 @@ auto-e2e report open
 | 选项 | 说明 |
 |---|---|
 | `--json` | JSON 模式：stdout 只输出最终 JSON，便于机器解析 |
-| `--non-interactive` | 非交互模式：禁止等待用户输入（CI / Codex 调用必加） |
+| `--non-interactive` | 非交互模式：禁止等待用户输入（自动化调用建议使用） |
 | `--project-root <path>` | 目标项目根目录，默认为当前工作目录 |
 | `-q, --quiet` | 静默日志（等价于 `--log-level warn`） |
 | `--log-level <level>` | 日志级别：`debug` / `info` / `warn` / `error` / `silent` |
@@ -131,7 +131,7 @@ auto-e2e init --force        # 覆盖已存在的配置文件
 
 ---
 
-### auth login / auth browser
+### auth login / auth browser / auth status
 
 管理 ChatGPT OAuth 与浏览器业务登录。**仅在接入真实 AI / 真实浏览器（`sdk` / `real` 实现）时需要。**
 
@@ -139,11 +139,22 @@ auto-e2e init --force        # 覆盖已存在的配置文件
 # 触发 ChatGPT OAuth 登录并保存认证信息
 auto-e2e auth login
 
-# 使用 BetterWright 打开浏览器，完成业务系统登录并保存 Session
+# 认证开启时，分别准备 BetterWright Profile 与 Playwright storageState
 auto-e2e auth browser --profile admin
+
+# 仅重新准备其中一端
+auto-e2e auth browser --profile admin --target explorer
+auto-e2e auth browser --profile admin --target runner
+
+# 在线检查两端认证状态
+auto-e2e auth status --profile admin
 ```
 
-`--profile <name>` 指定浏览器 Session Profile 名称，默认为 `admin`。
+`--profile <name>` 指定业务身份 Profile，默认读取 `browser.sessionProfile`。`--target` 支持 `all`、`explorer` 和 `runner`，默认 `all`。
+
+BetterWright 和 Playwright 使用两个独立浏览器，首次需要分别完成人工认证。BetterWright 登录态保存在 `$BETTERWRIGHT_HOME` 的命名 Profile 中；Playwright 状态保存在 `.auto-e2e/auth/<profile>/playwright-storage-state.json`。两者都不会写入报告，`.auto-e2e/auth/` 必须保持在 `.gitignore` 中。
+
+认证准备只支持网页 SSO/MFA。依赖企业 Chrome 扩展、客户端证书、mTLS 或设备身份的环境不会被伪装成认证成功。
 
 ---
 
@@ -184,11 +195,14 @@ auto-e2e verify --changed --non-interactive --json
 
 1. 校验 `task-spec.json`，结合 Git Diff 分析需求与代码变更。
 2. 使用 Pi 生成结构化 `test-plan.json`（所有模型输出经 Zod 校验）。
-3. 使用 BetterWright 探索真实页面，收集稳定定位器与证据。
-4. 生成可运行的 `@playwright/test` 测试。
-5. 执行测试（失败时保留截图、Trace、视频）。
-6. 输出 Console / JSON / HTML / JUnit 报告。
-7. 对失败进行分类（`product_defect` / `test_defect` / …）并给出 `confidence`。
+3. 使用 BetterWright 探索真实页面，等待页面稳定，并在真实页面上验证定位器唯一且可见。
+   任一目标页面不可达、未获得稳定交互快照或没有已验证定位器时，命令以浏览器错误退出，拒绝继续生成测试。
+   SDK 模式会在同一浏览器会话中受约束地处理登录门禁、页面导航和打开只读界面；模型只能点击当前已验证元素，探索器会阻止保存、提交、确认、删除、支付、发布等业务写入动作。成功动作记录在 `exploration.json` 的页面 `actions` 中。
+4. 生成后的 TypeScript 会再次进行定位器证据校验：静态 `getBy*` 定位器必须与 `exploration.json` 中 `verified: true` 的定位器一致，CSS `locator()` 会被拒绝；以运行时变量精确查找本次创建测试数据的定位器允许使用。
+5. 生成可运行的 `@playwright/test` 测试。
+6. 执行测试（失败时保留截图、Trace、视频）。
+7. 输出 Console / JSON / HTML / JUnit 报告。
+8. 对失败进行分类（`product_defect` / `test_defect` / …）并给出 `confidence`。
 
 执行结束后通过退出码反映结果，结构化结果写入 `result.json`。
 
@@ -256,6 +270,7 @@ auto-e2e config show
 project:
   name: demo-web
   baseUrl: http://127.0.0.1:3000
+  manageApplication: true         # false：外部托管，跳过本地启动与裸 HTTP 健康检查
   startCommand: npm run dev
   healthUrl: http://127.0.0.1:3000
   startupTimeout: 120000        # 启动超时（ms）
@@ -273,6 +288,14 @@ browser:
   sessionProfile: admin
   timeout: 30000
   implementation: mock           # mock（离线闭环）/ real（真实 BetterWright 浏览器）
+
+authentication:
+  enabled: false                  # true 时 generate/verify/run 会先在线预检
+  # 开启时以下字段必填：
+  # entryUrl: https://example.com/protected
+  # successUrlPrefix: https://example.com/app/
+  # successSelector: 'text=业务首页'
+  # interactiveTimeout: 600000
 
 playwright:
   configFile: playwright.config.ts
@@ -294,6 +317,11 @@ report:
   outputDirectory: .auto-e2e/reports
   artifactDirectory: .auto-e2e/artifacts
   formats: [console, json, html, junit]
+
+knowledge:
+  enabled: false
+  maxFiles: 3
+  maxCharacters: 12000
 ```
 
 ---
@@ -341,19 +369,20 @@ report:
 
 ## 输出与报告
 
-每次执行后，产物位于 `.auto-e2e/reports/latest/`：
+每次执行写入独立运行目录，并同步最近一次兼容入口：
 
 ```
-.auto-e2e/reports/latest/
-├── result.json      # 结构化结果（供机器解析）
-├── summary.md       # 人类可读摘要
-└── html/            # HTML 报告（Playwright reporter 生成）
+.auto-e2e/reports/
+├── runs/<runId>/    # 不可变历史运行
+└── latest/          # 最近一次完成运行的物理副本
 ```
 
 `result.json` 遵循如下结构（plan §13.1，Zod 校验）：
 
 ```jsonc
 {
+  "schemaVersion": 2,
+  "runId": "20260729T124122123Z-a1b2c3d4",
   "taskId": "TASK-20260729-001",
   "status": "failed",            // passed / failed
   "mode": "incremental",         // incremental / full
@@ -405,7 +434,7 @@ report:
 | 3 | 测试生成失败 |
 | 4 | 需求或验收标准信息不足 |
 | 5 | 登录或认证失败 |
-| 6 | BetterWright 或浏览器执行失败 |
+| 6 | 浏览器执行或探索失败 |
 | 7 | 配置错误 |
 | 8 | Playwright 执行异常 |
 | 9 | 未知错误 |
@@ -416,26 +445,19 @@ report:
 
 默认 Mock 模式无需任何外部依赖。接入真实能力时：
 
-1. 安装可选依赖（Pi SDK / betterwright）。
+1. 安装可选依赖（Pi SDK）。真实浏览器直接使用本机 Google Chrome（默认通过 `channel: chrome`），无需安装额外依赖包。
 2. 编辑 `.auto-e2e/config.yaml`：
    - `agent.implementation` 改为 `sdk`
    - `browser.implementation` 改为 `real`
 3. 执行 `auto-e2e auth login` 完成 ChatGPT OAuth 认证。
-4. （如需业务系统登录）执行 `auto-e2e auth browser --profile <name>`。
+4. （配置启用业务认证时）执行 `auto-e2e auth browser --profile <name>`，分别准备探索和执行认证。
 
 完成后即可使用 `verify` 触发真实的分析、探索、生成与执行。
 
 ---
 
-## Codex 集成
+## 自动化调用
 
-auto-e2e 设计为可被 Codex 等 Agent 调用。完整集成示例见 [`examples/AGENTS.md`](../examples/AGENTS.md)，要点：
-
-1. **生成 task-spec.json**：Codex 完成开发后，根据原始需求与实际代码变更生成 `.auto-e2e/task-spec.json`。
-2. **执行 verify**：`auto-e2e verify --spec .auto-e2e/task-spec.json --non-interactive --json`
-3. **读取结果**：`.auto-e2e/reports/latest/result.json`
-4. **按 `failure.category` 决策**：
-   - `product_defect`：分析是否由本次代码引起，修复业务代码后重试。
-   - `test_defect`：**不得**修改业务逻辑迎合测试，应调整 task-spec 或生成输入。
-5. **重试上限**：最多自动修复并重试两轮。
-6. **最终报告**：向用户汇报实现内容、代码变更、测试范围、测试结果、未覆盖风险及报告路径（`.auto-e2e/reports/latest/summary.md`）。
+开发者、脚本或其他自动化系统都可以执行
+`auto-e2e verify --spec .auto-e2e/task-spec.json --non-interactive --json`，
+并读取退出码与 `.auto-e2e/reports/latest/result.json`。auto-e2e 不决定调用方是否修改代码或再次执行测试。

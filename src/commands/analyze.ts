@@ -7,6 +7,7 @@ import { mergeGlobalOpts } from '../runtime/global-options.js';
 import { loadConfig } from '../config/config-loader.js';
 import { createPiClient } from '../agent/pi-client-factory.js';
 import { analyzeLastRun } from '../report/failure-analyzer.js';
+import { withProgress } from '../runtime/progress.js';
 
 export interface AnalyzeOptions extends RunOptions {
   last?: boolean;
@@ -14,6 +15,7 @@ export interface AnalyzeOptions extends RunOptions {
 
 export async function analyzeCommand(opts: AnalyzeOptions): Promise<number> {
   return runCommand(opts, async (ctx) => {
+    ctx.logger.info('开始分析最近一次测试结果');
     if (!opts.last) {
       throw new AutoE2EError(ExitCode.ConfigError, '目前仅支持 --last');
     }
@@ -21,13 +23,21 @@ export async function analyzeCommand(opts: AnalyzeOptions): Promise<number> {
     const reportsDir = ctx.resolve(config.report.outputDirectory);
     const latestDir = ctx.resolve(path.join(config.report.outputDirectory, 'latest'));
     const artifactDir = ctx.resolve(config.report.artifactDirectory);
-    const client = createPiClient({ agent: config.agent });
-
-    const { failures, updatedResult } = await analyzeLastRun({
-      latestDir,
-      artifactDir,
-      client,
+    const client = createPiClient({
+      agent: config.agent, projectRoot: ctx.projectRoot, knowledge: config.knowledge,
     });
+
+    const { failures, updatedResult } = await withProgress(
+      ctx.logger,
+      '读取报告并分析失败原因',
+      () =>
+        analyzeLastRun({
+          latestDir,
+          artifactDir,
+          projectRoot: ctx.projectRoot,
+          client,
+        }),
+    );
 
     const message =
       failures.length === 0

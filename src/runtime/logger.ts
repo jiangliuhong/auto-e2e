@@ -70,6 +70,11 @@ export class Logger {
     return LEVEL_ORDER[level] >= LEVEL_ORDER[this.level];
   }
 
+  /** 判断某级别当前是否会输出，供进度器避免在静默模式创建无用定时器。 */
+  isEnabled(level: Exclude<LogLevel, 'silent'>): boolean {
+    return this.shouldEmit(level);
+  }
+
   private format(level: Exclude<LogLevel, 'silent'>, msg: string): string {
     const tag = LEVEL_TAG[level];
     const head = this.prefix ? `[${tag}] ${this.prefix}` : `[${tag}]`;

@@ -55,6 +55,7 @@ export async function generateTestFile(opts: GenerateTestOptions): Promise<Gener
 
   // 安全校验：禁止敏感字面量。
   assertNoSecrets(gen.code);
+  assertLocatorsSupportedByExploration(gen.code, opts.exploration);
 
   // TS 校验。
   const validate = opts.validateTs ?? defaultValidateTs;
@@ -135,4 +136,123 @@ function assertNoSecrets(code: string): void {
       throw new AutoE2EError(3, `生成的测试包含疑似敏感信息（匹配 ${pattern.source}），已拒绝写入`);
     }
   }
+}
+
+const EVIDENCE_LOCATOR_METHODS = new Set([
+  'getByTestId',
+  'getByRole',
+  'getByLabel',
+  'getByPlaceholder',
+  'getByText',
+  'getByAltText',
+  'getByTitle',
+]);
+
+/**
+ * 静态定位器必须来自真实探索证据。使用运行时变量定位本次创建的数据仍被允许，
+ * 例如 getByText(fullName, { exact: true })。
+ */
+export function assertLocatorsSupportedByExploration(
+  code: string,
+  exploration: ExploreResult,
+): void {
+  const evidence = new Set<string>();
+  for (const page of exploration.pages) {
+    for (const element of page.elements) {
+      if (element.verified !== true) continue;
+      const fingerprint = locatorFingerprintFromText(element.recommendedLocator);
+      if (fingerprint) evidence.add(fingerprint.value);
+    }
+  }
+
+  const source = ts.createSourceFile(
+    'generated.spec.ts',
+    code,
+    ts.ScriptTarget.ES2022,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const unsupported = new Set<string>();
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression.name.text;
+      if (method === 'locator') {
+        unsupported.add(node.getText(source));
+      } else if (EVIDENCE_LOCATOR_METHODS.has(method)) {
+        const fingerprint = locatorFingerprint(node, source);
+        if (fingerprint && !fingerprint.dynamic && !evidence.has(fingerprint.value)) {
+          unsupported.add(node.getText(source));
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+
+  if (unsupported.size > 0) {
+    throw new AutoE2EError(
+      3,
+      `生成的测试包含未经探索验证的静态定位器：${[...unsupported].join('; ')}`,
+    );
+  }
+}
+
+function locatorFingerprintFromText(
+  expression: string,
+): { value: string; dynamic: boolean } | undefined {
+  const source = ts.createSourceFile(
+    'locator.ts',
+    `${expression};`,
+    ts.ScriptTarget.ES2022,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const statement = source.statements[0];
+  if (!statement || !ts.isExpressionStatement(statement)) return undefined;
+  const node = statement.expression;
+  if (!ts.isCallExpression(node)) return undefined;
+  return locatorFingerprint(node, source);
+}
+
+function locatorFingerprint(
+  node: ts.CallExpression,
+  source: ts.SourceFile,
+): { value: string; dynamic: boolean } | undefined {
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+  const method = node.expression.name.text;
+  if (!EVIDENCE_LOCATOR_METHODS.has(method)) return undefined;
+  const serialized = node.arguments.map((argument) => serializeLocatorArgument(argument, source));
+  return {
+    value: `${method}(${serialized.map((item) => item.value).join(',')})`,
+    dynamic: serialized.some((item) => item.dynamic),
+  };
+}
+
+function serializeLocatorArgument(
+  node: ts.Expression,
+  source: ts.SourceFile,
+): { value: string; dynamic: boolean } {
+  if (ts.isStringLiteralLike(node)) return { value: `string:${node.text}`, dynamic: false };
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return { value: 'boolean:true', dynamic: false };
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return { value: 'boolean:false', dynamic: false };
+  if (ts.isRegularExpressionLiteral(node)) {
+    return { value: `regexp:${node.text}`, dynamic: false };
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const properties = node.properties.map((property) => {
+      if (!ts.isPropertyAssignment(property)) {
+        return { key: property.getText(source), value: 'unsupported', dynamic: true };
+      }
+      const key = property.name.getText(source).replace(/^['"]|['"]$/g, '');
+      const value = serializeLocatorArgument(property.initializer, source);
+      return { key, value: value.value, dynamic: value.dynamic };
+    });
+    properties.sort((left, right) => left.key.localeCompare(right.key));
+    return {
+      value: `{${properties.map((property) => `${property.key}:${property.value}`).join(',')}}`,
+      dynamic: properties.some((property) => property.dynamic),
+    };
+  }
+  return { value: `dynamic:${node.getText(source)}`, dynamic: true };
 }

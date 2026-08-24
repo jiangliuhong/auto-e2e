@@ -25,7 +25,7 @@ const program = new Command();
 program
   .name('auto-e2e')
   .description('基于 Pi + BetterWright + Playwright 的自动化 E2E 测试生成与执行 CLI')
-  .version('0.1.0')
+  .version('0.2.0')
   .option('--json', 'JSON 模式：stdout 只输出最终 JSON')
   .option('--non-interactive', '非交互模式：禁止等待用户输入')
   .option('--project-root <path>', '目标项目根目录', process.cwd())

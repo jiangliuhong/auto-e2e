@@ -83,6 +83,30 @@ describe('health-checker', () => {
 });
 
 describe('process-manager', () => {
+  it('外部托管应用跳过健康检查和进程启动', async () => {
+    let probed = false;
+    let spawned = false;
+    const app = await ensureAppRunning({
+      projectRoot: '/proj',
+      manageApplication: false,
+      startCommand: 'unused',
+      healthUrl: 'https://example.com/protected',
+      startupTimeout: 1000,
+      fetchFn: async () => {
+        probed = true;
+        return { ok: false, status: 401 };
+      },
+      spawnImpl: (() => {
+        spawned = true;
+        return {} as never;
+      }) as never,
+    });
+
+    expect(app.startedByUs).toBe(false);
+    expect(probed).toBe(false);
+    expect(spawned).toBe(false);
+  });
+
   it('应用已健康时不启动进程', async () => {
     let spawned = false;
     const app = await ensureAppRunning({

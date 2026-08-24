@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { generateTestFile } from '../../src/playwright/test-generator.js';
+import {
+  assertLocatorsSupportedByExploration,
+  generateTestFile,
+} from '../../src/playwright/test-generator.js';
 import { MockPiClient } from '../../src/agent/mock-pi-client.js';
 import { AutoE2EError } from '../../src/runtime/exit-codes.js';
 import type { TaskSpec } from '../../src/domain/task-spec.js';
@@ -44,7 +47,7 @@ const exploration: ExploreResult = {
       route: '/users',
       reachable: true,
       elements: [
-        { description: '禁用按钮', recommendedLocator: "page.getByTestId('disable-btn')", fallbackLocators: [], stable: true },
+        { description: '禁用按钮', recommendedLocator: "page.getByTestId('disable-btn')", fallbackLocators: [], stable: true, verified: true },
       ],
       observedRequests: [],
       screenshots: [],
@@ -123,5 +126,32 @@ describe('test-generator', () => {
         validateTs: async () => ({ ok: true }),
       }),
     ).rejects.toBeInstanceOf(AutoE2EError);
+  });
+
+  it('拒绝探索证据中不存在的静态定位器', () => {
+    expect(() =>
+      assertLocatorsSupportedByExploration(
+        "await page.getByRole('combobox', { name: /^(选择用户|用户)$/ }).click();",
+        exploration,
+      ),
+    ).toThrow(/未经探索验证/);
+  });
+
+  it('允许已验证定位器和运行时测试数据定位器', () => {
+    expect(() =>
+      assertLocatorsSupportedByExploration(
+        [
+          "await page.getByTestId('disable-btn').click();",
+          'await page.getByText(fullName, { exact: true }).click();',
+        ].join('\n'),
+        exploration,
+      ),
+    ).not.toThrow();
+  });
+
+  it('拒绝未取证的 CSS locator', () => {
+    expect(() =>
+      assertLocatorsSupportedByExploration("await page.locator('option').first().click();", exploration),
+    ).toThrow(/page\.locator\('option'\)/);
   });
 });

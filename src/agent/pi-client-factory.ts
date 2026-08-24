@@ -4,15 +4,20 @@
 import type { PiClient } from './pi-client.js';
 import { MockPiClient } from './mock-pi-client.js';
 import { SdKPiClient } from './sdk-pi-client.js';
-import type { AgentConfig } from '../config/config-schema.js';
+import type { AgentConfig, KnowledgeConfig } from '../config/config-schema.js';
 
 export interface PiClientFactoryOptions {
   agent: AgentConfig;
+  projectRoot?: string;
+  knowledge?: KnowledgeConfig;
 }
 
 export function createPiClient(opts: PiClientFactoryOptions): PiClient {
   if (opts.agent.implementation === 'sdk') {
-    return new SdKPiClient();
+    return new SdKPiClient({
+      projectRoot: opts.projectRoot ?? process.cwd(),
+      knowledge: opts.knowledge ?? { enabled: false, maxFiles: 3, maxCharacters: 12000 },
+    });
   }
   return new MockPiClient();
 }

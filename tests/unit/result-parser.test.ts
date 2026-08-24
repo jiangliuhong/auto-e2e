@@ -51,10 +51,31 @@ describe('result-parser', () => {
     expect(r.rawFailures[0]!.message).toBe('boom');
   });
 
-  it('computeCoverage 按标题包含关系判定覆盖', () => {
+  it('从 Playwright attachments 提取失败产物路径', () => {
+    const parsed = parsePlaywrightJson({
+      suites: [{
+        specs: [{
+          title: '失败', ok: false,
+          tests: [{ results: [{
+            status: 'failed', duration: 1, error: { message: 'boom' },
+            attachments: [
+              { name: 'screenshot', contentType: 'image/png', path: 'shot.png' },
+              { name: 'trace', contentType: 'application/zip', path: 'trace.zip' },
+              { name: 'video', contentType: 'video/webm', path: 'video.webm' },
+            ],
+          }] }],
+        }],
+      }],
+    });
+    expect(parsed.rawFailures[0]!.artifacts).toEqual({
+      screenshot: 'shot.png', trace: 'trace.zip', video: 'video.webm',
+    });
+  });
+
+  it('computeCoverage 按测试计划显式映射判定覆盖', () => {
     const cov = computeCoverage(
       ['展示禁用按钮', '二次确认'],
-      ['正向：展示禁用按钮', '其他'],
+      ['展示禁用按钮', '其他'],
     );
     expect(cov.covered).toBe(1);
     expect(cov.uncovered).toEqual(['二次确认']);
