@@ -50,15 +50,15 @@ export async function runCommand<T>(
       }
       return err.exitCode;
     }
-    // 未知错误。
+    // 工具自身异常。
     const message = err instanceof Error ? err.message : String(err);
     logger.error(message);
     if (ctx.json) {
       process.stdout.write(
-        JSON.stringify({ ok: false, exitCode: 9, error: message }, null, 2) + '\n',
+        JSON.stringify({ ok: false, exitCode: 3, error: message }, null, 2) + '\n',
       );
     }
-    return 9;
+    return 3;
   }
 }
 

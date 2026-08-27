@@ -1,10 +1,10 @@
 {
   "name": "auto-e2e",
-  "version": "0.2.0",
-  "description": "基于 Pi + Playwright 的自动化 E2E 测试生成与执行 CLI",
+  "version": "0.3.0",
+  "description": "基于 BetterWright 的本地需求验收、proof 与历史报告 CLI",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "bin": {
     "auto-e2e": "./dist/cli.js"
@@ -14,7 +14,7 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
+    "build": "node scripts/build.mjs",
     "link": "npm run build && npm link",
     "unlink": "npm unlink -g auto-e2e",
     "dev": "tsx src/cli.ts",
@@ -24,24 +24,20 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@playwright/test": "^1.48.0",
+    "betterwright": "^1.5.0",
     "commander": "^12.1.0",
-    "typescript": "^5.6.0",
     "yaml": "^2.6.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
     "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
     "vitest": "^2.1.0"
-  },
-  "optionalDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.82.0",
-    "@sinclair/typebox": "^0.32.0"
   },
   "files": [
     "dist",
-    "README.md",
-    "examples"
+    "skills",
+    "README.md"
   ]
 }

@@ -3,10 +3,9 @@ dist/
 coverage/
 
 # auto-e2e 运行产物（接入 auto-e2e 的目标项目使用）
-.auto-e2e/auth/
 .auto-e2e/artifacts/
 .auto-e2e/reports/
-.auto-e2e/generated/
+.auto-e2e/history.sqlite*
 demo/
 .zcode/
 test-results/

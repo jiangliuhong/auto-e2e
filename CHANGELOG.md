@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking：删除 Pi、原生 Playwright Explorer、测试生成与 Playwright Runner 产品链路。
+- CLI 收敛为 `doctor`、`run`、`list`、`show`、`serve`。
+- BetterWright CLI 负责真实浏览器验收，所有 AC 必须返回结构化结论与 proof。
+- 使用 SQLite 保存需求、运行、验收标准和 artifact 元数据。
+- 新增只读本地验收历史与 proof Web 页面。
+- 公共退出码收敛为 `0`、`1`、`2`、`3`。
+
 ## 0.2.0
 
 - 增加不可变运行历史、`runId` 和 TestResult Schema v2。

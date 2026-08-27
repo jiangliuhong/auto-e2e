@@ -1,171 +1,33 @@
-import { describe, it, expect } from 'vitest';
-import { parse as yamlParse } from 'yaml';
-import { AutoE2EConfigSchema } from '../../src/config/config-schema.js';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config/config-loader.js';
-import { writeInitArtifacts, configToYaml } from '../../src/config/config-writer.js';
-import { defaultConfig } from '../../src/config/defaults.js';
-import { AutoE2EError } from '../../src/runtime/exit-codes.js';
 
-describe('config schema', () => {
-  it('默认配置通过校验并填充所有默认值', () => {
-    const cfg = defaultConfig();
-    expect(cfg.agent.implementation).toBe('mock');
-    expect(cfg.project.manageApplication).toBe(true);
-    expect(cfg.browser.explorer).toBe('playwright');
-    expect(cfg.browser.channel).toBe('chrome');
-    expect(cfg.browser.implementation).toBe('mock');
-    expect(cfg.authentication).toEqual({ enabled: false });
-    expect(cfg.playwright.retries).toBe(1);
-    expect(cfg.report.formats).toEqual(['console', 'json', 'html', 'junit']);
-    expect(cfg.knowledge).toEqual({ enabled: false, maxFiles: 3, maxCharacters: 12000 });
-    // allowSourceModification 固定 false。
-    expect(cfg.generation.allowSourceModification).toBe(false);
+describe('acceptance config', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('缺少配置时使用项目目录名与安全默认值', async () => {
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'auto-e2e-config-'));
+    const root = path.join(parent, 'my-web');
+    await fs.mkdir(root);
+    const config = await loadConfig({ projectRoot: root });
+    expect(config.project.name).toBe('my-web');
+    expect(config.acceptance.databasePath).toBe('.auto-e2e/history.sqlite');
+    expect(config.acceptance.forbiddenActions).toContain('删除数据');
   });
 
-  it('允许外部托管应用跳过本地进程管理', () => {
-    const cfg = AutoE2EConfigSchema.parse({
-      project: {
-        name: 'remote',
-        baseUrl: 'https://example.com',
-        manageApplication: false,
-        startCommand: 'unused',
-        healthUrl: 'https://example.com/health',
-      },
-    });
-    expect(cfg.project.manageApplication).toBe(false);
-  });
-
-  it('allowSourceModification 不允许设为 true', () => {
-    const r = AutoE2EConfigSchema.safeParse({
-      project: { name: 'a', baseUrl: 'http://x', startCommand: 'x', healthUrl: 'http://x' },
-      generation: { allowSourceModification: true },
-    });
-    expect(r.success).toBe(false);
-  });
-
-  it('认证开启时要求完整网页 SSO 成功条件', () => {
-    const base = {
-      project: { name: 'a', baseUrl: 'http://x', startCommand: 'x', healthUrl: 'http://x' },
-    };
-    expect(
-      AutoE2EConfigSchema.safeParse({
-        ...base,
-        authentication: { enabled: true },
-      }).success,
-    ).toBe(false);
-    expect(
-      AutoE2EConfigSchema.safeParse({
-        ...base,
-        browser: { sessionProfile: '../unsafe' },
-        authentication: {
-          enabled: true,
-          entryUrl: 'https://example.com/protected',
-          successUrlPrefix: 'https://example.com/app/',
-          successSelector: 'text=首页',
-          interactiveTimeout: 600000,
-        },
-      }).success,
-    ).toBe(false);
-    expect(
-      AutoE2EConfigSchema.safeParse({
-        ...base,
-        authentication: {
-          enabled: true,
-          entryUrl: 'https://example.com/protected',
-          successUrlPrefix: 'https://example.com/app/',
-          successSelector: 'text=首页',
-          interactiveTimeout: 600000,
-        },
-      }).success,
-    ).toBe(true);
-    expect(
-      AutoE2EConfigSchema.safeParse({
-        ...base,
-        authentication: {
-          enabled: true,
-          entryUrl: 'https://example.com/protected',
-          successUrlPrefix: 'https://example.com/app/',
-          successSelector: 'text=首页',
-          interactiveTimeout: 600000,
-          password: 'must-not-be-accepted',
-        },
-      }).success,
-    ).toBe(false);
-    expect(
-      AutoE2EConfigSchema.safeParse({
-        ...base,
-        authentication: {
-          enabled: true,
-          entryUrl: 'https://example.com/protected?token=secret',
-          successUrlPrefix: 'https://example.com/app/',
-          successSelector: 'text=首页',
-          interactiveTimeout: 600000,
-        },
-      }).success,
-    ).toBe(false);
-  });
-});
-
-describe('config env overrides', () => {
-  it('环境变量覆盖配置值（含数字/布尔转换）', async () => {
-    const original = { ...process.env };
-    process.env['AUTO_E2E_PROJECT_BASEURL'] = 'http://localhost:4000';
-    process.env['AUTO_E2E_PLAYWRIGHT_RETRIES'] = '3';
-    process.env['AUTO_E2E_BROWSER_HEADLESS'] = 'false';
-    try {
-      const cfg = await loadConfig({
-        projectRoot: '/nonexistent-for-test',
-        fallbackToDefault: true,
-      });
-      expect(cfg.project.baseUrl).toBe('http://localhost:4000');
-      expect(cfg.playwright.retries).toBe(3);
-      expect(cfg.browser.headless).toBe(false);
-    } finally {
-      process.env = original;
-    }
-  });
-});
-
-describe('init writer', () => {
-  it('写入 config.yaml 与 task-spec.json，并追加 .gitignore 缺失条目', async () => {
-    const files = new Map<string, string>();
-    const written = await writeInitArtifacts({
-      projectRoot: '/proj',
-      config: defaultConfig(),
-      writeFile: async (f, d) => void files.set(f, d),
-      mkdir: async () => undefined,
-      readFile: async (f) => files.get(f) ?? (() => { throw new Error('ENOENT'); })(),
-    });
-    const configYaml = files.get('/proj/.auto-e2e/config.yaml')!;
-    expect(configYaml).toContain('demo-web');
-    const taskSpec = JSON.parse(files.get('/proj/.auto-e2e/task-spec.json')!);
-    expect(taskSpec.taskId).toBe('TASK-20260729-001');
-    expect(written.gitignoreUpdated).toBe(true);
-  });
-
-  it('配置已存在且未 --force 时抛错', async () => {
-    const files = new Map<string, string>([['/proj/.auto-e2e/config.yaml', 'existing']]);
-    await expect(
-      writeInitArtifacts({
-        projectRoot: '/proj',
-        config: defaultConfig(),
-        writeFile: async (f, d) => void files.set(f, d),
-        mkdir: async () => undefined,
-        readFile: async (f) => files.get(f) ?? (() => { throw new Error('ENOENT'); })(),
-      }),
-    ).rejects.toThrow(/已存在/);
-  });
-});
-
-describe('config error -> exit code 7', () => {
-  it('configToYaml 输出可被重新解析', () => {
-    const yaml = configToYaml(defaultConfig());
-    const reparsed = AutoE2EConfigSchema.safeParse(yamlParse(yaml));
-    expect(reparsed.success).toBe(true);
-  });
-
-  it('AutoE2EError 配置错误退出码为 7', () => {
-    const err = new AutoE2EError(7, '配置错误');
-    expect(err.exitCode).toBe(7);
+  it('读取 .auto-e2e.yaml 并应用环境覆盖', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'auto-e2e-config-'));
+    await fs.writeFile(path.join(root, '.auto-e2e.yaml'), `project:
+  name: configured
+  baseUrl: https://test.example.com
+acceptance:
+  model: test-model
+`, 'utf8');
+    vi.stubEnv('AUTO_E2E_MODEL', 'override-model');
+    const config = await loadConfig({ projectRoot: root });
+    expect(config.project.baseUrl).toBe('https://test.example.com');
+    expect(config.acceptance.model).toBe('override-model');
   });
 });
