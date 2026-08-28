@@ -62,8 +62,17 @@ function formatRunList(runs: Awaited<ReturnType<AcceptanceHistoryStore['list']>>
 }
 
 function formatRun(run: NonNullable<Awaited<ReturnType<AcceptanceHistoryStore['get']>>>): string {
-  const criteria = run.criteria.map((criterion) =>
-    `- [${criterion.status}] ${criterion.id} ${criterion.description}: ${criterion.actual}`,
-  ).join('\n');
-  return `${run.runId} · ${run.status}\n${run.summary}\n${criteria}`;
+  const cases = run.schemaVersion === 1
+    ? [{ caseId: null, source: run.source, status: run.status, criteria: run.criteria }]
+    : run.cases;
+  const details = cases.map((testCase) => {
+    const heading = testCase.caseId
+      ? `${testCase.caseId} · ${testCase.source.title} · ${testCase.status}\n`
+      : '';
+    const criteria = testCase.criteria.map((criterion) =>
+      `- [${criterion.status}] ${criterion.id} ${criterion.description}: ${criterion.actual}`,
+    ).join('\n');
+    return `${heading}${criteria}`;
+  }).join('\n');
+  return `${run.runId} · ${run.status}\n${run.summary}\n${details}`;
 }

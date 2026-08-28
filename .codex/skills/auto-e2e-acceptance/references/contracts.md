@@ -29,21 +29,28 @@ report:
 
 ## Task specification
 
-Create `.auto-e2e/task-spec.json`. This is a strict schema; legacy fields are rejected.
+Create one `.auto-e2e/specs/<name>.spec.json` file per independent scenario. This is a strict schema.
 
 ```json
 {
-  "taskId": "optional-stable-id",
-  "title": "用户可搜索订单",
-  "requirement": "登录用户可以按订单号查找自己的订单。",
+  "taskId": "PL-FORECAST-01",
+  "title": "P&L 预测",
+  "requirement": "上传预测模板，执行锁定计算并核对结果。",
+  "inputs": [{ "name": "P&L 模板", "path": "fixtures/pl-forecast.xlsx" }],
+  "outputs": [{
+    "name": "税前利润",
+    "location": "预测结果汇总区",
+    "expected": 125000.25,
+    "match": "numeric",
+    "tolerance": 0.01
+  }],
   "acceptanceCriteria": [
-    "输入存在的订单号并搜索后，结果列表显示该订单号",
-    "输入不存在的订单号并搜索后，页面显示空结果提示"
+    "模板上传成功并完成锁定计算"
   ]
 }
 ```
 
-Required fields are `title`, `requirement`, and a non-empty `acceptanceCriteria` string array. `taskId` is optional. Do not add `changedFiles`, implementation steps, selectors, or expected source-code changes.
+Required fields are `title`, `requirement`, and a non-empty `acceptanceCriteria` string array. `taskId`, `inputs`, and `outputs` are optional. Input paths must be relative regular files inside the project. Output matching supports `equals`, `contains`, and `numeric`; numeric outputs may set a non-negative absolute `tolerance`. Each output becomes an additional mandatory acceptance criterion. Do not add `changedFiles`, implementation steps, selectors, or expected source-code changes.
 
 ## Commands
 

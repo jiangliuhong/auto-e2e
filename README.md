@@ -49,7 +49,7 @@ report:
 # 检查 BetterWright、浏览器和模型登录
 auto-e2e doctor
 
-# 默认读取 .auto-e2e/task-spec.json
+# 默认按文件名顺序运行 .auto-e2e/specs/*.spec.json
 auto-e2e run --json
 
 # Markdown 需求
@@ -69,9 +69,43 @@ auto-e2e serve --workspace /path/to/my-web --port 4317 --open
 auto-e2e skill status
 ```
 
-Web UI 维护独立的工作区列表。删除磁盘上的项目后，服务会自动清理对应工作区；也可在侧栏手动移除。选中工作区后，可以编辑同一份 `.auto-e2e/task-spec.json`、发起验收并查看历史与 proof。页面右上角支持亮色和暗色主题，选择会保存在浏览器中。
+Web UI 维护独立的工作区列表。删除磁盘上的项目后，服务会自动清理对应工作区；也可在侧栏手动移除。选中工作区后，可以新建、切换、编辑和删除 `.auto-e2e/specs/*.spec.json` 用例文件，发起验收并查看历史与 proof。页面右上角支持亮色和暗色主题，选择会保存在浏览器中。
 
-随包提供的 `auto-e2e-acceptance` Codex Skill 会指导 Codex 根据需求创建 `.auto-e2e.yaml` 与 `.auto-e2e/task-spec.json`。执行 `auto-e2e skill install` 后，Skill 位于当前项目的 `.codex/skills/auto-e2e-acceptance`；也可使用 `--project-root <path>` 指定项目。这些文件既可由 `auto-e2e run` 执行，也可在 Web UI 中编辑和运行。更新 npm 包后可执行 `auto-e2e skill install --force` 更新项目内已安装的 Skill。
+每个 `*.spec.json` 文件只描述一个用例。例如 `.auto-e2e/specs/order-search.spec.json`：
+
+```json
+{
+  "taskId": "ORDER-01",
+  "title": "查询已有订单",
+  "requirement": "用户按订单号查询已有订单",
+  "acceptanceCriteria": ["结果中显示该订单号"]
+}
+```
+
+需要“文件输入 → 页面操作 → 结果校验”时，可声明项目内输入文件和结构化页面输出：
+
+```json
+{
+  "taskId": "PL-FORECAST-01",
+  "title": "P&L 预测",
+  "requirement": "上传预测模板并执行锁定计算",
+  "inputs": [{ "name": "P&L 模板", "path": "fixtures/pl-forecast.xlsx" }],
+  "outputs": [{
+    "name": "税前利润",
+    "location": "预测结果汇总区",
+    "expected": 125000.25,
+    "match": "numeric",
+    "tolerance": 0.01
+  }],
+  "acceptanceCriteria": ["模板上传成功并完成锁定计算"]
+}
+```
+
+输入路径必须是项目内相对路径。运行时文件会被临时复制到 BetterWright 允许上传的 artifact 区，结束后删除；项目外路径和逃逸项目的符号链接会被阻止。每个 `outputs` 条目都会追加为必须覆盖的 AC，支持 `equals`、`contains` 和带绝对误差的 `numeric` 比较。
+
+默认运行会扫描目录中的所有匹配文件，忽略其他 JSON。每个文件使用独立 BetterWright session 依次运行，最终保存一条包含用例汇总、逐用例 AC 和 proof 的报告。
+
+随包提供的 `auto-e2e-acceptance` Codex Skill 会指导 Codex 根据需求创建 `.auto-e2e.yaml` 与 `.auto-e2e/specs/*.spec.json`。执行 `auto-e2e skill install` 后，Skill 位于当前项目的 `.codex/skills/auto-e2e-acceptance`；也可使用 `--project-root <path>` 指定项目。这些文件既可由 `auto-e2e run` 执行，也可在 Web UI 中编辑和运行。更新 npm 包后可执行 `auto-e2e skill install --force` 更新项目内已安装的 Skill。
 
 Markdown 需求应包含“验收标准”或 `Acceptance Criteria` 标题及列表；OpenSpec 使用 `Scenario:` 标题。所有标准会转换为稳定的 `AC-01`、`AC-02` 编号。
 
@@ -79,8 +113,11 @@ Markdown 需求应包含“验收标准”或 `Acceptance Criteria` 标题及列
 
 ```text
 .auto-e2e/
+├── specs/
+│   ├── order-search.spec.json
+│   └── order-empty.spec.json
 ├── history.sqlite
-├── artifacts/<runId>/
+├── artifacts/<runId>/<caseId>/
 └── reports/acceptance/
     ├── latest/result.json
     └── runs/<runId>/result.json

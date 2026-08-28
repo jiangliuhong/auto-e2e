@@ -1,10 +1,17 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 import { executeAcceptance } from '../acceptance/acceptance-runner.js';
 import { AcceptanceHistoryStore } from '../acceptance/history-store.js';
-import { loadConfig } from '../config/config-loader.js';
-import { TaskSpecSchema } from '../domain/task-spec.js';
+import { CONFIG_FILENAME, loadConfig } from '../config/config-loader.js';
+import { AutoE2EConfigSchema, type AutoE2EConfig } from '../config/config-schema.js';
+import {
+  ACCEPTANCE_SPEC_DIRECTORY,
+  isAcceptanceSpecFileName,
+  TaskSpecSchema,
+  type TaskSpec,
+} from '../domain/task-spec.js';
 import { AutoE2EError, ExitCode } from '../runtime/exit-codes.js';
 import { Logger } from '../runtime/logger.js';
 import { WorkspaceRegistry } from '../workspace/workspace-registry.js';
@@ -78,19 +85,42 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           sendJson(response, 200, { ok: true, workspace, config });
           return;
         }
-        if (method === 'GET' && action === 'task-spec') {
-          sendJson(response, 200, { ok: true, spec: await readTaskSpec(workspace.path) });
-          return;
-        }
-        if (method === 'PUT' && action === 'task-spec') {
+        if (method === 'PUT' && action === 'config') {
           const body = await parseJsonBody(request);
-          const parsed = TaskSpecSchema.safeParse(body.spec);
+          const parsed = AutoE2EConfigSchema.safeParse(body.config);
           if (!parsed.success) {
             throw new AutoE2EError(ExitCode.Blocked, parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '));
           }
-          await writeTaskSpec(workspace.path, parsed.data);
-          sendJson(response, 200, { ok: true, spec: parsed.data });
+          await writeConfigFile(workspace.path, parsed.data);
+          sendJson(response, 200, { ok: true, config: parsed.data });
           return;
+        }
+        if (method === 'GET' && action === 'task-specs') {
+          sendJson(response, 200, { ok: true, specs: await listTaskSpecs(workspace.path) });
+          return;
+        }
+        const taskSpecMatch = action.match(/^task-specs\/([^/]+)$/);
+        if (taskSpecMatch?.[1]) {
+          const fileName = decodeURIComponent(taskSpecMatch[1]);
+          if (method === 'GET') {
+            sendJson(response, 200, { ok: true, fileName, spec: await readNamedTaskSpec(workspace.path, fileName) });
+            return;
+          }
+          if (method === 'PUT') {
+            const body = await parseJsonBody(request);
+            const parsed = TaskSpecSchema.safeParse(body.spec);
+            if (!parsed.success) {
+              throw new AutoE2EError(ExitCode.Blocked, parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '));
+            }
+            await writeNamedTaskSpec(workspace.path, fileName, parsed.data);
+            sendJson(response, 200, { ok: true, fileName, spec: parsed.data });
+            return;
+          }
+          if (method === 'DELETE') {
+            await deleteNamedTaskSpec(workspace.path, fileName);
+            sendJson(response, 200, { ok: true });
+            return;
+          }
         }
         if (method === 'GET' && action === 'runs') {
           const rawLimit = Number(url.searchParams.get('limit') ?? 100);
@@ -174,26 +204,96 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
   };
 }
 
-async function readTaskSpec(projectRoot: string): Promise<unknown | null> {
-  try {
-    return JSON.parse(await fs.readFile(path.join(projectRoot, '.auto-e2e', 'task-spec.json'), 'utf8'));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
+interface TaskSpecListItem {
+  fileName: string;
+  reference: string;
+  taskId: string | null;
+  title: string;
+  error: string | null;
 }
 
-async function writeTaskSpec(projectRoot: string, spec: unknown): Promise<void> {
-  const directory = path.join(projectRoot, '.auto-e2e');
-  const target = path.join(directory, 'task-spec.json');
-  await fs.mkdir(directory, { recursive: true });
+async function listTaskSpecs(projectRoot: string): Promise<TaskSpecListItem[]> {
+  const directory = path.join(projectRoot, ACCEPTANCE_SPEC_DIRECTORY);
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+  const fileNames = entries
+    .filter((entry) => entry.isFile() && isAcceptanceSpecFileName(entry.name))
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+  return Promise.all(fileNames.map(async (fileName) => {
+    const raw = await readNamedTaskSpec(projectRoot, fileName);
+    const parsed = TaskSpecSchema.safeParse(raw);
+    return {
+      fileName,
+      reference: path.join(ACCEPTANCE_SPEC_DIRECTORY, fileName),
+      taskId: parsed.success ? parsed.data.taskId ?? null : null,
+      title: parsed.success ? parsed.data.title : fileName,
+      error: parsed.success
+        ? null
+        : parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '),
+    };
+  }));
+}
+
+async function readNamedTaskSpec(projectRoot: string, fileName: string): Promise<unknown> {
+  const target = resolveNamedTaskSpec(projectRoot, fileName);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await fs.readFile(target, 'utf8'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new AutoE2EError(ExitCode.Blocked, `验收用例不存在：${fileName}`);
+    }
+    throw error;
+  }
+  return raw;
+}
+
+async function writeNamedTaskSpec(
+  projectRoot: string,
+  fileName: string,
+  spec: TaskSpec,
+): Promise<void> {
+  const target = resolveNamedTaskSpec(projectRoot, fileName);
+  await fs.mkdir(path.dirname(target), { recursive: true });
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(temporary, `${JSON.stringify(spec, null, 2)}\n`, 'utf8');
   await fs.rename(temporary, target);
 }
 
+async function deleteNamedTaskSpec(projectRoot: string, fileName: string): Promise<void> {
+  const target = resolveNamedTaskSpec(projectRoot, fileName);
+  try {
+    await fs.unlink(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+function resolveNamedTaskSpec(projectRoot: string, fileName: string): string {
+  if (!isAcceptanceSpecFileName(fileName)) {
+    throw new AutoE2EError(
+      ExitCode.Blocked,
+      `验收用例文件名必须匹配 *.spec.json：${fileName}`,
+    );
+  }
+  return path.join(projectRoot, ACCEPTANCE_SPEC_DIRECTORY, fileName);
+}
+
+async function writeConfigFile(projectRoot: string, config: AutoE2EConfig): Promise<void> {
+  const target = path.join(projectRoot, CONFIG_FILENAME);
+  const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(temporary, `${YAML.stringify(config)}\n`, 'utf8');
+  await fs.rename(temporary, target);
+}
+
 async function hasWorkspaceMarker(projectRoot: string): Promise<boolean> {
-  for (const marker of ['.auto-e2e.yaml', path.join('.auto-e2e', 'task-spec.json')]) {
+  for (const marker of ['.auto-e2e.yaml', ACCEPTANCE_SPEC_DIRECTORY]) {
     try {
       await fs.access(path.join(projectRoot, marker));
       return true;

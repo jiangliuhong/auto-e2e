@@ -40,10 +40,14 @@ export async function runAcceptanceCommand(opts: AcceptanceRunOptions): Promise<
       : result.status === 'failed'
         ? ExitCode.TestsFailed
         : ExitCode.Blocked;
+    const cases = result.schemaVersion === 1 ? [result] : result.cases;
+    const criteria = cases.flatMap((item) => item.criteria);
+    const passedCases = cases.filter((item) => item.status === 'passed').length;
+    const passedCriteria = criteria.filter((item) => item.status === 'passed').length;
     return {
       exitCode,
       json: { ok: exitCode === ExitCode.Ok, run: result },
-      message: `验收完成：${result.status}（${result.criteria.filter((item) => item.status === 'passed').length}/${result.criteria.length}）\nRun ID: ${result.runId}`,
+      message: `验收完成：${result.status}（用例 ${passedCases}/${cases.length}，AC ${passedCriteria}/${criteria.length}）\nRun ID: ${result.runId}`,
     };
   });
 }
@@ -51,7 +55,7 @@ export async function runAcceptanceCommand(opts: AcceptanceRunOptions): Promise<
 export function registerRun(program: Command): void {
   program.command('run')
     .description('使用 BetterWright 验证需求并保存验收记录')
-    .option('--spec <path>', '从 task-spec.json 读取需求（默认 .auto-e2e/task-spec.json）')
+    .option('--spec <path>', '读取一个 *.spec.json 文件或包含这些文件的目录（默认 .auto-e2e/specs）')
     .option('--requirement <path>', '从 Markdown 文件读取需求与验收标准')
     .option('--change <name>', '从 openspec/changes/<name> 读取需求')
     .option('--url <url>', '目标环境 URL（默认读取 project.baseUrl）')

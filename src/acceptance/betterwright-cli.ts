@@ -12,6 +12,7 @@ import {
   type AcceptanceSource,
 } from '../domain/acceptance-run.js';
 import type { Logger } from '../runtime/logger.js';
+import type { TaskExpectedOutput } from '../domain/task-spec.js';
 
 const BetterWrightExecEnvelopeSchema = z.object({
   ok: z.boolean(),
@@ -166,20 +167,39 @@ export function buildAcceptancePrompt(input: {
   criteria: AcceptanceCriterionInput[];
   targetUrl: string;
   forbiddenActions: string[];
+  inputs?: Array<{ name: string; path: string; description?: string }>;
+  outputs?: TaskExpectedOutput[];
 }): string {
   const checklist = input.criteria
     .map((criterion) => `- ${criterion.id}: ${criterion.description}`)
     .join('\n');
   const forbidden = input.forbiddenActions.map((action) => `- ${action}`).join('\n');
+  const fileInputs = input.inputs?.length
+    ? input.inputs.map((item) =>
+        `- ${item.name}：${JSON.stringify(item.path)}${item.description ? `（${item.description}）` : ''}`,
+      ).join('\n')
+    : '- 无';
+  const expectedOutputs = input.outputs?.length
+    ? input.outputs.map((output) => {
+        const match = output.match ?? (typeof output.expected === 'number' ? 'numeric' : 'equals');
+        const tolerance = match === 'numeric' ? `，绝对误差 <= ${output.tolerance ?? 0}` : '';
+        return `- ${output.name}：位置=${JSON.stringify(output.location)}，期望=${JSON.stringify(output.expected)}，匹配=${match}${tolerance}`;
+      }).join('\n')
+    : '- 无额外结构化输出';
   return `你是一个严格的浏览器验收执行器。请访问 ${input.targetUrl}，根据下面的需求逐项验证。\n\n` +
     `需求来源：${input.source.reference}\n需求标题：${input.source.title}\n\n` +
-    `需求正文：\n${input.source.content}\n\n验收清单：\n${checklist}\n\n` +
+    `需求正文：\n${input.source.content}\n\n` +
+    `测试输入文件：\n${fileInputs}\n\n` +
+    `预期输出：\n${expectedOutputs}\n\n` +
+    `验收清单：\n${checklist}\n\n` +
     `安全约束：\n${forbidden || '- 不执行需求未明确授权的破坏性或高影响操作'}\n\n` +
     `执行规则：\n` +
-    `1. 每条验收标准都必须得到 passed、failed 或 blocked 结论，不能遗漏。\n` +
-    `2. 只根据页面真实可见状态判断，不得把 URL、猜测或未完成操作当成证明。\n` +
-    `3. 对可见结果保存 proof 截图；不能执行时说明具体阻塞原因。\n` +
-    `4. 最终答案只能是 JSON，不要使用 Markdown 代码块或附加文字。结构必须为：\n` +
+    `1. 如有测试输入文件，必须把上面的精确绝对路径传给页面文件上传控件；不得自行构造或替换文件。\n` +
+    `2. 完成需求规定的全部页面操作后，再读取页面真实可见的输出；数字按给定绝对误差比较。\n` +
+    `3. 每条验收标准都必须得到 passed、failed 或 blocked 结论，不能遗漏。\n` +
+    `4. 只根据页面真实可见状态判断，不得把 URL、猜测或未完成操作当成证明。\n` +
+    `5. 对可见输入结果和输出结果保存 proof 截图；不能执行时说明具体阻塞原因。\n` +
+    `6. 最终答案只能是 JSON，不要使用 Markdown 代码块或附加文字。结构必须为：\n` +
     `{"summary":"总体结论","criteria":[{"id":"AC-01","description":"原始标准","status":"passed|failed|blocked","actual":"实际观察","proof":"截图路径或 null"}]}\n`;
 }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- 新增 `.auto-e2e/specs/*.spec.json` 多文件用例约定；不再读取旧版 `.auto-e2e/task-spec.json`。
+- 每个用例文件使用独立 BetterWright session 运行，SQLite、JSON 快照、CLI 和 Web UI 展示汇总与逐用例报告。
+
 ## 0.3.0
 
 - Breaking：删除 Pi、原生 Playwright Explorer、测试生成与 Playwright Runner 产品链路。

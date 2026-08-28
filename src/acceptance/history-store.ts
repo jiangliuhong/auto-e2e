@@ -14,6 +14,10 @@ export interface RunListItem {
   status: AcceptanceRun['status'];
   startedAt: string;
   durationMs: number;
+  caseCount: number;
+  passedCaseCount: number;
+  criteriaCount: number;
+  passedCriteriaCount: number;
 }
 
 export class AcceptanceHistoryStore {
@@ -70,6 +74,22 @@ export class AcceptanceHistoryStore {
           actual TEXT NOT NULL,
           proof TEXT,
           PRIMARY KEY(run_id, criterion_id)
+        );
+        CREATE TABLE IF NOT EXISTS acceptance_cases (
+          run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+          position INTEGER NOT NULL,
+          case_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          finished_at TEXT NOT NULL,
+          duration_ms INTEGER NOT NULL,
+          summary TEXT NOT NULL,
+          steps INTEGER NOT NULL,
+          proof TEXT,
+          error TEXT,
+          result_json TEXT NOT NULL,
+          PRIMARY KEY(run_id, case_id)
         );
         CREATE TABLE IF NOT EXISTS artifacts (
           run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
@@ -128,7 +148,7 @@ export class AcceptanceHistoryStore {
         validated.targetUrl,
         validated.profile,
         validated.model,
-        validated.session,
+        validated.schemaVersion === 1 ? validated.session : 'suite',
         validated.status,
         validated.startedAt,
         validated.finishedAt,
@@ -147,18 +167,60 @@ export class AcceptanceHistoryStore {
       const insertArtifact = db.prepare(`
         INSERT OR IGNORE INTO artifacts(run_id, criterion_id, kind, path) VALUES (?, ?, ?, ?)
       `);
-      validated.criteria.forEach((criterion, index) => {
-        insertCriterion.run(
-          validated.runId,
-          index,
-          criterion.id,
-          criterion.description,
-          criterion.status,
-          criterion.actual,
-          criterion.proof,
-        );
-        if (criterion.proof) insertArtifact.run(validated.runId, criterion.id, 'proof', criterion.proof);
-      });
+      if (validated.schemaVersion === 1) {
+        validated.criteria.forEach((criterion, index) => {
+          insertCriterion.run(
+            validated.runId,
+            index,
+            criterion.id,
+            criterion.description,
+            criterion.status,
+            criterion.actual,
+            criterion.proof,
+          );
+          if (criterion.proof) insertArtifact.run(validated.runId, criterion.id, 'proof', criterion.proof);
+        });
+      } else {
+        const insertCase = db.prepare(`
+          INSERT INTO acceptance_cases(
+            run_id, position, case_id, title, status, started_at, finished_at,
+            duration_ms, summary, steps, proof, error, result_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        let criterionPosition = 0;
+        validated.cases.forEach((testCase, caseIndex) => {
+          insertCase.run(
+            validated.runId,
+            caseIndex,
+            testCase.caseId,
+            testCase.source.title,
+            testCase.status,
+            testCase.startedAt,
+            testCase.finishedAt,
+            testCase.durationMs,
+            testCase.summary,
+            testCase.steps,
+            testCase.proof,
+            testCase.error,
+            JSON.stringify(testCase),
+          );
+          testCase.criteria.forEach((criterion) => {
+            const storedCriterionId = `${testCase.caseId}/${criterion.id}`;
+            insertCriterion.run(
+              validated.runId,
+              criterionPosition++,
+              storedCriterionId,
+              criterion.description,
+              criterion.status,
+              criterion.actual,
+              criterion.proof,
+            );
+            if (criterion.proof) {
+              insertArtifact.run(validated.runId, storedCriterionId, 'proof', criterion.proof);
+            }
+          });
+        });
+      }
       if (validated.proof) insertArtifact.run(validated.runId, null, 'proof', validated.proof);
       db.exec('COMMIT');
     } catch (error) {
@@ -173,14 +235,28 @@ export class AcceptanceHistoryStore {
     await this.initialize();
     const db = this.open();
     try {
-      return db.prepare(`
+      const rows = db.prepare(`
         SELECT r.run_id AS runId, r.project, q.title AS requirement,
                q.source_type AS sourceType, r.commit_hash AS "commit",
                r.target_url AS targetUrl, r.status, r.started_at AS startedAt,
-               r.duration_ms AS durationMs
+               r.duration_ms AS durationMs, r.result_json AS resultJson
         FROM runs r JOIN requirements q ON q.id = r.requirement_id
         ORDER BY r.started_at DESC LIMIT ?
-      `).all(Math.max(1, Math.min(Math.trunc(limit), 500))) as unknown as RunListItem[];
+      `).all(Math.max(1, Math.min(Math.trunc(limit), 500))) as unknown as Array<
+        Omit<RunListItem, 'caseCount' | 'passedCaseCount' | 'criteriaCount' | 'passedCriteriaCount'> & { resultJson: string }
+      >;
+      return rows.map(({ resultJson, ...row }) => {
+        const run = AcceptanceRunSchema.parse(JSON.parse(resultJson));
+        const cases = run.schemaVersion === 1 ? [run] : run.cases;
+        const criteria = cases.flatMap((item) => item.criteria);
+        return {
+          ...row,
+          caseCount: cases.length,
+          passedCaseCount: cases.filter((item) => item.status === 'passed').length,
+          criteriaCount: criteria.length,
+          passedCriteriaCount: criteria.filter((item) => item.status === 'passed').length,
+        };
+      });
     } finally {
       db.close();
     }
