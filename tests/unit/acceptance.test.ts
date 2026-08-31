@@ -4,37 +4,46 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { defaultConfig } from '../../src/config/defaults.js';
 import { executeAcceptance } from '../../src/acceptance/acceptance-runner.js';
-import { parseAcceptanceAnswer } from '../../src/acceptance/betterwright-cli.js';
+import {
+  parseAcceptanceAnswer,
+  parseBundleAcceptanceAnswer,
+  preserveProof,
+} from '../../src/acceptance/betterwright-cli.js';
 import { AcceptanceHistoryStore } from '../../src/acceptance/history-store.js';
 import {
-  extractAcceptanceCriteria,
-  loadAcceptanceRequirement,
   loadAcceptanceRequirements,
 } from '../../src/acceptance/requirement-loader.js';
 
 describe('acceptance requirement loader', () => {
-  it('从 Markdown 验收标准列表生成稳定编号', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-requirement-'));
-    await writeFile(
-      path.join(root, 'requirement.md'),
-      '# 用户查询\n\n## 验收标准\n\n- 能按名称查询\n- 空结果显示提示\n',
-      'utf8',
-    );
-    const loaded = await loadAcceptanceRequirement({
-      projectRoot: root,
-      requirement: 'requirement.md',
-    });
-    expect(loaded.source.title).toBe('用户查询');
-    expect(loaded.criteria).toEqual([
-      { id: 'AC-01', description: '能按名称查询' },
-      { id: 'AC-02', description: '空结果显示提示' },
-    ]);
-  });
+  it('递归发现 Spec Bundle 并以 bundle 目录为文件边界', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-loader-'));
+    const bundle = path.join(root, '.auto-e2e', 'specs', 'pl', 'forecast-lock');
+    await mkdir(path.join(bundle, 'inputs'), { recursive: true });
+    await mkdir(path.join(bundle, 'expected'), { recursive: true });
+    await writeFile(path.join(bundle, 'inputs', 'forecast.xlsx'), 'input', 'utf8');
+    await writeFile(path.join(bundle, 'expected', 'result.xlsx'), 'expected', 'utf8');
+    await writeFile(path.join(bundle, 'spec.json'), JSON.stringify({
+      schemaVersion: 2,
+      taskId: 'PL-FORECAST-01',
+      title: 'P&L 预测',
+      requirement: '上传并核对结果',
+      files: [
+        { id: 'input', role: 'input', path: 'inputs/forecast.xlsx' },
+        { id: 'expected', role: 'expected', path: 'expected/result.xlsx' },
+      ],
+      steps: [{ id: 'STEP-01', instruction: '上传并试算', uses: ['input'], expected: '试算完成' }],
+      results: [{ id: 'RESULT-01', name: '结果', actual: '结果表格', expected: { file: 'expected' }, match: 'table' }],
+    }), 'utf8');
 
-  it('识别 OpenSpec Scenario', () => {
-    expect(extractAcceptanceCriteria(
-      '## Requirement: Search\n### Scenario: Search succeeds\n- **WHEN** input\n- **THEN** result',
-    )).toEqual(['Search succeeds']);
+    const loaded = await loadAcceptanceRequirements({ projectRoot: root });
+    expect(loaded.requirements).toHaveLength(1);
+    expect(loaded.requirements[0]?.caseId).toBe('PL-FORECAST-01');
+    expect(loaded.requirements[0]?.source.reference).toBe('.auto-e2e/specs/pl/forecast-lock/spec.json');
+    expect(loaded.requirements[0]?.source.digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(loaded.requirements[0]?.criteria.map((item) => item.description)).toEqual([
+      expect.stringContaining('步骤 STEP-01'),
+      expect.stringContaining('结果 RESULT-01'),
+    ]);
   });
 
   it('不再读取旧版 task-spec.json', async () => {
@@ -59,9 +68,200 @@ describe('BetterWright acceptance output', () => {
       [{ id: 'AC-01', description: 'a' }, { id: 'AC-02', description: 'b' }],
     )).toThrow(/未完整覆盖/);
   });
+
+  it('拒绝乱序或跳过后继续执行的 Bundle 步骤', () => {
+    const steps = [
+      { id: 'STEP-01', instruction: '第一步', expected: '完成一' },
+      { id: 'STEP-02', instruction: '第二步', expected: '完成二' },
+    ];
+    const results = [{ id: 'RESULT-01', name: '结果', actual: '页面', expected: 'ok', match: 'equals' as const }];
+    expect(() => parseBundleAcceptanceAnswer(JSON.stringify({
+      summary: '非法',
+      steps: [
+        { id: 'STEP-02', status: 'passed', actual: '二', proof: null, error: null },
+        { id: 'STEP-01', status: 'passed', actual: '一', proof: null, error: null },
+      ],
+      results: [{ id: 'RESULT-01', status: 'observed', actual: 'ok', proof: null, error: null }],
+    }), steps, results)).toThrow(/未按规格完整有序覆盖/);
+  });
+
+  it('拒绝无前置失败的 skipped 步骤', () => {
+    const steps = [
+      { id: 'STEP-01', instruction: '第一步', expected: '完成一' },
+      { id: 'STEP-02', instruction: '第二步', expected: '完成二' },
+    ];
+    const results = [{ id: 'RESULT-01', name: '结果', actual: '页面', expected: 'ok', match: 'equals' as const }];
+    expect(() => parseBundleAcceptanceAnswer(JSON.stringify({
+      summary: '非法',
+      steps: [
+        { id: 'STEP-01', status: 'skipped', actual: '跳过', proof: null, error: null },
+        { id: 'STEP-02', status: 'passed', actual: '完成', proof: null, error: null },
+      ],
+      results: [{ id: 'RESULT-01', status: 'observed', actual: 'ok', proof: null, error: null }],
+    }), steps, results)).toThrow(/不能在前置步骤失败或阻塞前跳过/);
+  });
+
+  it('业务步骤失败后强制所有结果为 blocked', () => {
+    const steps = [{ id: 'STEP-01', instruction: '第一步', expected: '完成一' }];
+    const results = [{ id: 'RESULT-01', name: '结果', actual: '页面', expected: 'ok', match: 'equals' as const }];
+    expect(() => parseBundleAcceptanceAnswer(JSON.stringify({
+      summary: '失败',
+      steps: [{ id: 'STEP-01', status: 'failed', actual: '失败', proof: null, error: '失败' }],
+      results: [{ id: 'RESULT-01', status: 'observed', actual: 'ok', proof: null, error: null }],
+    }), steps, results)).toThrow(/必须为 blocked/);
+  });
+
+  it('Proof 只允许来自授权 artifact 目录且必须是图片', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-proof-'));
+    const allowed = path.join(root, 'allowed');
+    const output = path.join(root, 'output');
+    await mkdir(allowed, { recursive: true });
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    await writeFile(path.join(allowed, 'proof.bin'), png);
+    await writeFile(path.join(root, 'secret.png'), png);
+    await writeFile(path.join(allowed, 'not-image.png'), 'secret', 'utf8');
+
+    expect(await preserveProof(path.join(allowed, 'proof.bin'), output, 'proof.png', [allowed], root))
+      .toBe(path.join(output, 'proof.png'));
+    expect(await preserveProof(path.join(root, 'secret.png'), output, 'secret.png', [allowed], root)).toBeNull();
+    expect(await preserveProof(path.join(allowed, 'not-image.png'), output, 'text.png', [allowed], root)).toBeNull();
+  });
 });
 
 describe('acceptance run and history', () => {
+  it('由运行器确定性复算 Bundle 的 numeric 结果', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-numeric-'));
+    const bundle = path.join(root, '.auto-e2e', 'specs', 'numeric');
+    await mkdir(bundle, { recursive: true });
+    await writeFile(path.join(bundle, 'spec.json'), JSON.stringify({
+      schemaVersion: 2,
+      taskId: 'NUMERIC-01',
+      title: '数值结果',
+      requirement: '检查数值',
+      steps: [{ id: 'STEP-01', instruction: '打开结果页', expected: '结果可见' }],
+      results: [{
+        id: 'RESULT-01', name: '利润', actual: '利润字段', expected: 100,
+        match: 'numeric', options: { numericTolerance: 0.1 },
+      }],
+    }), 'utf8');
+    const fakeCli = path.join(root, 'fake-betterwright');
+    await writeFile(fakeCli, `#!/bin/sh
+cat >/dev/null
+printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"完成\\",\\"steps\\":[{\\"id\\":\\"STEP-01\\",\\"status\\":\\"passed\\",\\"actual\\":\\"结果可见\\",\\"proof\\":null,\\"error\\":null}],\\"results\\":[{\\"id\\":\\"RESULT-01\\",\\"status\\":\\"observed\\",\\"actual\\":100.05,\\"proof\\":null,\\"error\\":null}]}","steps":1,"proof":null}'
+`, 'utf8');
+    await chmod(fakeCli, 0o700);
+    const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo'), betterwrightBinary: fakeCli });
+    expect(run.status).toBe('passed');
+    expect(run.resultAssertions?.[0]).toEqual(expect.objectContaining({
+      status: 'passed', actual: 100.05, difference: expect.closeTo(0.05),
+    }));
+  });
+
+  it('结构化步骤和结果不会继承任务级 Proof', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-proof-'));
+    const bundle = path.join(root, '.auto-e2e', 'specs', 'proof');
+    const betterWrightHome = path.join(root, 'betterwright-home');
+    const proof = path.join(betterWrightHome, 'artifacts', 'overall.png');
+    await mkdir(bundle, { recursive: true });
+    await mkdir(path.dirname(proof), { recursive: true });
+    await writeFile(proof, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]));
+    await writeFile(path.join(bundle, 'spec.json'), JSON.stringify({
+      schemaVersion: 2,
+      taskId: 'PROOF-01',
+      title: 'Proof 层级',
+      requirement: '区分整体与局部证据',
+      steps: [{ id: 'STEP-01', instruction: '打开结果页', expected: '结果可见' }],
+      results: [{ id: 'RESULT-01', name: '结果', actual: '页面字段', expected: 'ok', match: 'equals' }],
+    }), 'utf8');
+    const answer = JSON.stringify({
+      summary: '完成',
+      steps: [{ id: 'STEP-01', status: 'passed', actual: '可见', proof: null, error: null }],
+      results: [{ id: 'RESULT-01', status: 'observed', actual: 'ok', proof: null, error: null }],
+    });
+    const envelope = JSON.stringify({ ok: true, answer, steps: 1, proof });
+    const fakeCli = path.join(root, 'fake-betterwright');
+    await writeFile(fakeCli, `#!/bin/sh
+cat >/dev/null
+printf '%s' '${envelope}'
+`, 'utf8');
+    await chmod(fakeCli, 0o700);
+    const previousHome = process.env.BETTERWRIGHT_HOME;
+    process.env.BETTERWRIGHT_HOME = betterWrightHome;
+    try {
+      const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo'), betterwrightBinary: fakeCli });
+      expect(run.proof).toContain('proof.png');
+      expect(run.workflowSteps?.[0]?.proof).toBeNull();
+      expect(run.resultAssertions?.[0]?.proof).toBeNull();
+    } finally {
+      if (previousHome === undefined) delete process.env.BETTERWRIGHT_HOME;
+      else process.env.BETTERWRIGHT_HOME = previousHome;
+    }
+  });
+
+  it('暂存 Bundle 的 input 和 expected 文件并生成业务步骤 Prompt', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-run-'));
+    const bundle = path.join(root, '.auto-e2e', 'specs', 'pl-forecast');
+    await mkdir(path.join(bundle, 'inputs'), { recursive: true });
+    await mkdir(path.join(bundle, 'expected'), { recursive: true });
+    await writeFile(path.join(bundle, 'inputs', 'forecast.xlsx'), 'input', 'utf8');
+    await writeFile(path.join(bundle, 'expected', 'result.xlsx'), 'expected', 'utf8');
+    await writeFile(path.join(bundle, 'spec.json'), JSON.stringify({
+      schemaVersion: 2,
+      taskId: 'PL-FORECAST-01',
+      title: 'P&L 预测',
+      requirement: '完成试算与锁定',
+      files: [
+        { id: 'forecast-input', role: 'input', path: 'inputs/forecast.xlsx' },
+        { id: 'expected-result', role: 'expected', path: 'expected/result.xlsx' },
+      ],
+      steps: [{ id: 'STEP-01', instruction: '上传模板并执行试算', uses: ['forecast-input'], expected: '试算完成' }],
+      results: [{ id: 'RESULT-01', name: '锁定结果', actual: '锁定结果表格', expected: { file: 'expected-result' }, match: 'table' }],
+    }), 'utf8');
+    const fakeCli = path.join(root, 'fake-betterwright');
+    await writeFile(fakeCli, `#!/bin/sh
+cat > "${path.join(root, 'prompt.txt')}"
+printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"通过\\",\\"steps\\":[{\\"id\\":\\"STEP-01\\",\\"status\\":\\"passed\\",\\"actual\\":\\"试算完成\\",\\"proof\\":null,\\"error\\":null}],\\"results\\":[{\\"id\\":\\"RESULT-01\\",\\"status\\":\\"matched\\",\\"actual\\":\\"结果一致\\",\\"proof\\":null,\\"error\\":null}]}","steps":2,"proof":null}'
+`, 'utf8');
+    await chmod(fakeCli, 0o700);
+    const previousHome = process.env.BETTERWRIGHT_HOME;
+    process.env.BETTERWRIGHT_HOME = path.join(root, 'betterwright-home');
+    try {
+      const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo'), betterwrightBinary: fakeCli });
+      expect(run.status).toBe('passed');
+      expect(run.source.digest).toMatch(/^sha256:/);
+      expect(run.workflowSteps?.[0]?.id).toBe('STEP-01');
+      expect(run.resultAssertions?.[0]?.status).toBe('passed');
+      const prompt = await readFile(path.join(root, 'prompt.txt'), 'utf8');
+      expect(prompt).toContain('业务步骤（必须按顺序执行）');
+      expect(prompt).toContain('STEP-01：上传模板并执行试算');
+      expect(prompt).toContain('forecast-input：角色=input');
+      expect(prompt).toContain('expected-result：角色=expected');
+      expect(prompt).toContain('不得上传到被测系统');
+    } finally {
+      if (previousHome === undefined) delete process.env.BETTERWRIGHT_HOME;
+      else process.env.BETTERWRIGHT_HOME = previousHome;
+    }
+  });
+
+  it('阻止 Bundle 文件通过符号链接逃逸用例目录', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-escape-'));
+    const outside = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-outside-'));
+    const bundle = path.join(root, '.auto-e2e', 'specs', 'escape');
+    await mkdir(path.join(bundle, 'inputs'), { recursive: true });
+    await writeFile(path.join(outside, 'secret.xlsx'), 'secret', 'utf8');
+    await symlink(path.join(outside, 'secret.xlsx'), path.join(bundle, 'inputs', 'secret.xlsx'));
+    await writeFile(path.join(bundle, 'spec.json'), JSON.stringify({
+      schemaVersion: 2,
+      taskId: 'ESCAPE-01',
+      title: '非法文件',
+      requirement: '不读取目录外文件',
+      files: [{ id: 'secret', role: 'input', path: 'inputs/secret.xlsx' }],
+      steps: [{ id: 'STEP-01', instruction: '上传', uses: ['secret'], expected: '完成' }],
+      results: [{ id: 'RESULT-01', name: '结果', actual: '页面', expected: '完成', match: 'equals' }],
+    }), 'utf8');
+    await expect(loadAcceptanceRequirements({ projectRoot: root })).rejects.toThrow(/不能逃逸用例目录/);
+  });
+
   it('暂存项目内 Excel 输入并把结构化输出加入强制验收清单', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-data-driven-'));
     await mkdir(path.join(root, '.auto-e2e', 'specs'), { recursive: true });

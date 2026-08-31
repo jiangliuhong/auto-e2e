@@ -1,5 +1,7 @@
 # 参数、执行步骤与结果的完整验收方案
 
+> 本文为早期讨论稿。当前实施采用更精简的 [Spec Bundle v2](spec-bundle-v2.md)：一个业务场景一个目录，以 `files -> steps -> results` 表达，不定义 Playwright 风格 action DSL。
+
 ## 背景
 
 当前 task spec 支持 `inputs` 和 `outputs`：运行器可以暂存 Excel 等本地输入文件，并把预期页面输出转换成强制验收标准。这解决了“输入什么”和“最终期望什么”的问题，但中间执行过程仍主要依赖自然语言需求，存在以下不足：

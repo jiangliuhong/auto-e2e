@@ -1135,7 +1135,17 @@ export function renderDashboardHtml(): string {
               <button class="button sm" id="new-spec" title="新建验收用例文件">新建</button>
               <button class="button danger sm" id="delete-spec" title="删除当前验收用例文件">删除</button>
             </div>
-            <textarea class="textarea" id="task-spec" spellcheck="false" placeholder="{\n  &quot;taskId&quot;: &quot;PL-01&quot;,\n  &quot;title&quot;: &quot;P&amp;L 预测&quot;,\n  &quot;requirement&quot;: &quot;上传模板并执行计算&quot;,\n  &quot;inputs&quot;: [{&quot;name&quot;:&quot;P&amp;L 模板&quot;,&quot;path&quot;:&quot;fixtures/pl.xlsx&quot;}],\n  &quot;outputs&quot;: [{&quot;name&quot;:&quot;税前利润&quot;,&quot;location&quot;:&quot;结果区&quot;,&quot;expected&quot;:125000,&quot;match&quot;:&quot;numeric&quot;}],\n  &quot;acceptanceCriteria&quot;: [&quot;模板上传并计算成功&quot;]\n}"></textarea>
+            <textarea class="textarea" id="task-spec" spellcheck="false" placeholder="{\n  &quot;schemaVersion&quot;: 2,\n  &quot;taskId&quot;: &quot;PL-01&quot;,\n  &quot;title&quot;: &quot;P&amp;L 预测&quot;,\n  &quot;requirement&quot;: &quot;上传模板并执行计算&quot;,\n  &quot;steps&quot;: [{&quot;id&quot;:&quot;STEP-01&quot;,&quot;instruction&quot;:&quot;上传模板并试算&quot;,&quot;expected&quot;:&quot;试算成功&quot;}],\n  &quot;results&quot;: [{&quot;id&quot;:&quot;RESULT-01&quot;,&quot;name&quot;:&quot;状态&quot;,&quot;actual&quot;:&quot;页面状态&quot;,&quot;expected&quot;:&quot;成功&quot;,&quot;match&quot;:&quot;equals&quot;}]\n}"></textarea>
+            <div class="spec-toolbar" style="margin-top:10px;align-items:flex-start">
+              <select class="select" id="resource-role" style="max-width:130px" title="资源目录">
+                <option value="inputs">inputs</option>
+                <option value="expected">expected</option>
+                <option value="references">references</option>
+              </select>
+              <input id="resource-files" type="file" multiple class="hidden">
+              <button class="button sm" id="upload-resources">上传资源文件</button>
+              <div id="bundle-resources" class="sub" style="flex:1;font-size:11px;line-height:1.7">保存 Bundle 后可管理资源文件</div>
+            </div>
           </div>
 
           <!-- Run Acceptance -->
@@ -1150,7 +1160,7 @@ export function renderDashboardHtml(): string {
             <div class="stack">
               <div class="run-scope">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                <div><strong id="run-spec-count">0 个用例</strong><br>保存当前编辑内容后，按文件名顺序运行 specs 目录中的全部 <code>*.spec.json</code> 文件。</div>
+                <div><strong id="run-spec-count">0 个用例</strong><br>保存当前编辑内容后，按目录顺序运行 specs 中的全部 <code>**/spec.json</code> Bundle。</div>
               </div>
               <div class="form-field">
                 <div class="label">目标 URL</div>
@@ -1366,7 +1376,7 @@ export function renderDashboardHtml(): string {
   </div>
 
   <script>
-    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list' };
+    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list' };
     const el = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
@@ -1725,11 +1735,27 @@ export function renderDashboardHtml(): string {
 
     function defaultSpec() {
       return {
+        schemaVersion: 2,
         taskId: 'CASE-01',
         title: '示例验收用例',
         requirement: '描述期望的功能行为',
-        acceptanceCriteria: ['用户可以成功完成操作', '页面展示预期结果']
+        steps: [{
+          id: 'STEP-01',
+          instruction: '完成需要验收的业务操作',
+          expected: '操作完成并显示成功状态'
+        }],
+        results: [{
+          id: 'RESULT-01',
+          name: '页面结果',
+          actual: '操作完成后的页面结果',
+          expected: '预期结果',
+          match: 'equals'
+        }]
       };
+    }
+
+    function specDisplayPath(name) {
+      return '.auto-e2e/specs/' + name + (name.endsWith('.spec.json') ? '' : '/spec.json');
     }
 
     async function loadSpecs(preferredFile) {
@@ -1742,7 +1768,7 @@ export function renderDashboardHtml(): string {
         ? preferredFile
         : state.selectedSpec && available.includes(state.selectedSpec)
           ? state.selectedSpec
-          : available[0] || 'example.spec.json';
+          : available[0] || 'example';
       const select = el('spec-file');
       select.replaceChildren();
       if (!state.specs.length) {
@@ -1767,9 +1793,86 @@ export function renderDashboardHtml(): string {
       const value = existing
         ? (await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/task-specs/' + encodeURIComponent(state.selectedSpec))).spec
         : defaultSpec();
-      el('spec-path').textContent = '.auto-e2e/specs/' + state.selectedSpec;
+      el('spec-path').textContent = specDisplayPath(state.selectedSpec);
       el('task-spec').value = JSON.stringify(value, null, 2);
       el('delete-spec').disabled = !existing;
+      await loadBundleResources();
+    }
+
+    function resourceApiBase() {
+      return '/api/workspaces/' + encodeURIComponent(state.selected) + '/task-specs/' +
+        encodeURIComponent(state.selectedSpec) + '/resources';
+    }
+
+    async function loadBundleResources() {
+      const existingBundle = state.specs.some((item) => item.fileName === state.selectedSpec) &&
+        !state.selectedSpec.endsWith('.spec.json');
+      el('upload-resources').disabled = !existingBundle;
+      el('resource-role').disabled = !existingBundle;
+      if (!existingBundle) {
+        state.resources = [];
+        el('bundle-resources').textContent = state.selectedSpec?.endsWith('.spec.json')
+          ? '旧版 Spec 不支持 Bundle 资源'
+          : '先保存 Bundle，再上传 inputs / expected / references 文件';
+        return;
+      }
+      try {
+        const data = await api(resourceApiBase());
+        state.resources = data.files || [];
+        const container = el('bundle-resources');
+        container.replaceChildren();
+        if (!state.resources.length) {
+          container.textContent = '暂无资源文件';
+          return;
+        }
+        state.resources.forEach((resource) => {
+          const row = document.createElement('div');
+          row.className = 'row between';
+          const label = document.createElement('span');
+          label.textContent = resource.path + ' · ' + Math.ceil(resource.size / 1024) + ' KB';
+          const remove = document.createElement('button');
+          remove.className = 'button danger sm';
+          remove.textContent = '删除';
+          remove.onclick = () => deleteBundleResource(resource.path);
+          row.append(label, remove);
+          container.appendChild(row);
+        });
+      } catch (error) {
+        el('bundle-resources').textContent = '资源读取失败：' + error.message;
+      }
+    }
+
+    async function uploadBundleResources(files) {
+      if (!files.length) return;
+      const directory = el('resource-role').value;
+      try {
+        for (const file of files) {
+          const resourcePath = directory + '/' + file.name;
+          const response = await fetch(resourceApiBase() + '/' + encodeURIComponent(resourcePath), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: file
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || '上传失败');
+        }
+        el('resource-files').value = '';
+        await loadBundleResources();
+        toast(files.length + ' 个资源文件已上传');
+      } catch (error) {
+        toast('上传资源失败：' + error.message, true);
+      }
+    }
+
+    async function deleteBundleResource(resourcePath) {
+      if (!confirm('确认删除资源文件「' + resourcePath + '」？')) return;
+      try {
+        await api(resourceApiBase() + '/' + encodeURIComponent(resourcePath), { method: 'DELETE' });
+        await loadBundleResources();
+        toast('资源文件已删除');
+      } catch (error) {
+        toast('删除资源失败：' + error.message, true);
+      }
     }
 
     function formatSpecJson() {
@@ -1806,12 +1909,11 @@ export function renderDashboardHtml(): string {
     }
 
     async function createSpec() {
-      let fileName = prompt('输入用例文件名（建议使用英文短横线命名）', 'new-case.spec.json');
+      let fileName = prompt('输入 Spec Bundle 名称（建议使用英文短横线命名）', 'new-case');
       if (!fileName) return;
       fileName = fileName.trim();
-      if (!fileName.endsWith('.spec.json')) fileName += '.spec.json';
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.spec\.json$/.test(fileName)) {
-        toast('文件名必须匹配 *.spec.json，且不能包含目录', true);
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fileName)) {
+        toast('Bundle 名称只能包含字母、数字、点、下划线和短横线', true);
         return;
       }
       if (state.specs.some((item) => item.fileName === fileName)) {
@@ -1823,7 +1925,7 @@ export function renderDashboardHtml(): string {
       state.selectedSpec = fileName;
       el('spec-count').textContent = (state.specs.length + 1) + ' 个文件（含未保存）';
       el('run-spec-count').textContent = (state.specs.length + 1) + ' 个用例';
-      el('spec-path').textContent = '.auto-e2e/specs/' + fileName;
+      el('spec-path').textContent = specDisplayPath(fileName);
       el('task-spec').value = JSON.stringify(defaultSpec(), null, 2);
       el('delete-spec').disabled = true;
       const select = el('spec-file');
@@ -1947,13 +2049,37 @@ export function renderDashboardHtml(): string {
         source: run.source,
         status: run.status,
         summary: run.summary,
-        criteria: run.criteria
+        criteria: run.criteria,
+        workflowSteps: run.workflowSteps,
+        resultAssertions: run.resultAssertions,
+        specDigest: run.specDigest
       }];
       const casesHtml = runCases.map((testCase) => {
         const caseHeader = run.schemaVersion === 2
           ? '<div class="row between" style="padding:10px 0 4px"><div><div style="font-size:14px;font-weight:700">' + esc(testCase.caseId + ' · ' + testCase.source.title) + '</div><div class="sub" style="font-size:12px;margin-top:3px">' + esc(testCase.summary) + '</div></div><span class="status-badge ' + esc(testCase.status) + '">' + esc(testCase.status) + '</span></div>'
           : '';
-        return '<div class="stack" style="gap:8px">' + caseHeader + '<div class="criteria-list">' + renderCriteria(testCase.criteria) + '</div></div>';
+        const workflow = (testCase.workflowSteps || []).map((step) => ({
+          id: step.id,
+          status: step.status,
+          description: step.instruction + '；完成状态：' + step.expected,
+          actual: step.actual,
+          proof: step.proof
+        }));
+        const results = (testCase.resultAssertions || []).map((result) => ({
+          id: result.id,
+          status: result.status,
+          description: result.name + '；期望：' + JSON.stringify(result.expected) + '；比较：' + result.match,
+          actual: typeof result.actual === 'string' ? result.actual : JSON.stringify(result.actual),
+          proof: result.proof
+        }));
+        const structured = workflow.length || results.length
+          ? (workflow.length ? '<div class="label">业务步骤</div><div class="criteria-list">' + renderCriteria(workflow) + '</div>' : '') +
+            (results.length ? '<div class="label" style="margin-top:8px">结果断言</div><div class="criteria-list">' + renderCriteria(results) + '</div>' : '')
+          : '<div class="criteria-list">' + renderCriteria(testCase.criteria) + '</div>';
+        const digest = testCase.specDigest
+          ? '<div class="sub" style="font-family:var(--font-mono);font-size:11px">Spec: ' + esc(testCase.specDigest) + '</div>'
+          : '';
+        return '<div class="stack" style="gap:8px">' + caseHeader + digest + structured + '</div>';
       }).join('');
 
       const durationSec = typeof run.durationMs === 'number' ? (run.durationMs / 1000).toFixed(2) + 's' : '-';
@@ -2049,6 +2175,8 @@ export function renderDashboardHtml(): string {
     el('save-spec').onclick = saveSpec;
     el('new-spec').onclick = createSpec;
     el('delete-spec').onclick = deleteSpec;
+    el('upload-resources').onclick = () => el('resource-files').click();
+    el('resource-files').onchange = (event) => uploadBundleResources(Array.from(event.target.files || []));
     el('spec-file').onchange = async (event) => {
       state.selectedSpec = event.target.value;
       await loadSelectedSpec();

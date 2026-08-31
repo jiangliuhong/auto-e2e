@@ -148,4 +148,110 @@ describe('acceptance report server', () => {
     await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs/invalid.spec.json`, { method: 'DELETE' });
     expect((await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs`).then((response) => response.json())).specs).toHaveLength(2);
   });
+
+  it('通过工作区接口创建和读取 Spec Bundle', async () => {
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const spec = {
+      schemaVersion: 2,
+      taskId: 'BUNDLE-01',
+      title: 'Bundle 用例',
+      requirement: '完成业务操作并检查结果',
+      steps: [{ id: 'STEP-01', instruction: '完成操作', expected: '操作成功' }],
+      results: [{ id: 'RESULT-01', name: '结果', actual: '页面结果', expected: '成功', match: 'equals' }],
+    };
+    const response = await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs/new-bundle`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec }),
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(await fs.readFile(
+      path.join(root, '.auto-e2e', 'specs', 'new-bundle', 'spec.json'),
+      'utf8',
+    )).taskId).toBe('BUNDLE-01');
+
+    const listed = await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs`).then((item) => item.json());
+    expect(listed.specs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fileName: 'new-bundle', reference: '.auto-e2e/specs/new-bundle/spec.json' }),
+    ]));
+    const loaded = await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs/new-bundle`).then((item) => item.json());
+    expect(loaded.spec.title).toBe('Bundle 用例');
+  });
+
+  it('Web API 可以读取和更新嵌套的旧版 Spec', async () => {
+    const nested = path.join(root, '.auto-e2e', 'specs', 'legacy');
+    await fs.mkdir(nested, { recursive: true });
+    await fs.writeFile(path.join(nested, 'nested.spec.json'), JSON.stringify({
+      title: '嵌套旧用例', requirement: '可以读取', acceptanceCriteria: ['显示结果'],
+    }), 'utf8');
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const encoded = encodeURIComponent('legacy/nested.spec.json');
+    const loaded = await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs/${encoded}`).then((response) => response.json());
+    expect(loaded.spec.title).toBe('嵌套旧用例');
+
+    const response = await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs/${encoded}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec: { ...loaded.spec, title: '已更新' } }),
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(await fs.readFile(path.join(nested, 'nested.spec.json'), 'utf8')).title).toBe('已更新');
+  });
+
+  it('通过工作区接口上传、列出和删除 Bundle 资源', async () => {
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const spec = {
+      schemaVersion: 2,
+      taskId: 'FILES-01',
+      title: '资源用例',
+      requirement: '上传并校验文件',
+      files: [{ id: 'input', role: 'input', path: 'inputs/data.xlsx' }],
+      steps: [{ id: 'STEP-01', instruction: '上传文件', uses: ['input'], expected: '上传成功' }],
+      results: [{ id: 'RESULT-01', name: '结果', actual: '状态', expected: '成功', match: 'equals' }],
+    };
+    await fetch(`${instance.url}/api/workspaces/${workspaceId}/task-specs/files`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ spec }),
+    });
+    const base = `${instance.url}/api/workspaces/${workspaceId}/task-specs/files/resources`;
+    const upload = await fetch(`${base}/${encodeURIComponent('inputs/data.xlsx')}`, {
+      method: 'PUT', body: Buffer.from('xlsx-data'),
+    });
+    expect(upload.status).toBe(200);
+    expect(await fs.readFile(path.join(root, '.auto-e2e', 'specs', 'files', 'inputs', 'data.xlsx'), 'utf8')).toBe('xlsx-data');
+    const listed = await fetch(base).then((response) => response.json());
+    expect(listed.files).toEqual([{ path: 'inputs/data.xlsx', size: 9 }]);
+
+    expect((await fetch(`${base}/${encodeURIComponent('../secret.txt')}`, {
+      method: 'PUT', body: Buffer.from('secret'),
+    })).status).toBe(400);
+    expect((await fetch(`${base}/${encodeURIComponent('inputs/data.xlsx')}`, { method: 'DELETE' })).status).toBe(200);
+    await expect(fs.access(path.join(root, '.auto-e2e', 'specs', 'files', 'inputs', 'data.xlsx'))).rejects.toThrow();
+  });
+
+  it('Bundle 资源接口拒绝通过符号链接写出 Bundle', async () => {
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const bundle = path.join(root, '.auto-e2e', 'specs', 'linked');
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'auto-e2e-resource-outside-'));
+    await fs.mkdir(bundle, { recursive: true });
+    await fs.writeFile(path.join(bundle, 'spec.json'), JSON.stringify({
+      schemaVersion: 2, taskId: 'LINK-01', title: '链接', requirement: '链接',
+      steps: [{ id: 'STEP-01', instruction: '检查', expected: '安全' }],
+      results: [{ id: 'RESULT-01', name: '结果', actual: '状态', expected: '安全', match: 'equals' }],
+    }), 'utf8');
+    await fs.symlink(outside, path.join(bundle, 'inputs'));
+    try {
+      const response = await fetch(
+        `${instance.url}/api/workspaces/${workspaceId}/task-specs/linked/resources/${encodeURIComponent('inputs/escape.txt')}`,
+        { method: 'PUT', body: Buffer.from('secret') },
+      );
+      expect(response.status).toBe(400);
+      await expect(fs.access(path.join(outside, 'escape.txt'))).rejects.toThrow();
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
 });

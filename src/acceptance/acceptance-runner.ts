@@ -7,10 +7,13 @@ import type { AutoE2EConfig } from '../config/config-schema.js';
 import type {
   AcceptanceCaseRun,
   AcceptanceCriterionResult,
+  AcceptanceResultAssertion,
   AcceptanceRun,
   AcceptanceSuiteRun,
+  AcceptanceWorkflowStepResult,
   SingleAcceptanceRun,
 } from '../domain/acceptance-run.js';
+import type { TaskResource, TaskResult } from '../domain/task-spec.js';
 import { createRunId } from '../runtime/run-id.js';
 import type { Logger } from '../runtime/logger.js';
 import { AutoE2EError, ExitCode } from '../runtime/exit-codes.js';
@@ -18,6 +21,7 @@ import { loadAcceptanceRequirements, type LoadedRequirement } from './requiremen
 import {
   BetterWrightCli,
   buildAcceptancePrompt,
+  parseBundleAcceptanceAnswer,
   parseAcceptanceAnswer,
   preserveProof,
 } from './betterwright-cli.js';
@@ -30,8 +34,6 @@ export interface ExecuteAcceptanceOptions {
   projectRoot: string;
   config: AutoE2EConfig;
   spec?: string;
-  requirement?: string;
-  change?: string;
   url?: string;
   profile?: string;
   model?: string;
@@ -113,6 +115,9 @@ export async function executeAcceptance(
       steps: result.steps,
       proof: result.proof,
       error: result.error,
+      ...(result.specDigest ? { specDigest: result.specDigest } : {}),
+      ...(result.workflowSteps ? { workflowSteps: result.workflowSteps } : {}),
+      ...(result.resultAssertions ? { resultAssertions: result.resultAssertions } : {}),
     } satisfies SingleAcceptanceRun;
   } else {
     const status = deriveSuiteStatus(cases);
@@ -171,16 +176,25 @@ async function executeCase(input: {
   stagingId: string;
 }): Promise<AcceptanceCaseRun> {
   const startedDate = input.now();
-  const staged = await stageFileInputs(
-    input.projectRoot,
-    input.requirement.inputs,
-    input.stagingId,
-  );
+  const staged = input.requirement.resources.length > 0
+    ? await stageBundleResources(
+        input.requirement.fileBaseDirectory,
+        input.requirement.resources,
+        input.stagingId,
+      )
+    : await stageFileInputs(
+        input.requirement.fileBaseDirectory,
+        input.requirement.inputs,
+        input.stagingId,
+      );
   const prompt = buildAcceptancePrompt({
     ...input.requirement,
     targetUrl: input.targetUrl,
     forbiddenActions: input.forbiddenActions,
     inputs: staged.inputs,
+    resources: staged.resources,
+    workflowSteps: input.requirement.steps,
+    results: input.requirement.results,
   });
   let envelope;
   try {
@@ -203,11 +217,31 @@ async function executeCase(input: {
   let criteria: AcceptanceCriterionResult[];
   let status: AcceptanceRun['status'];
   let error: string | null = null;
+  let workflowSteps: AcceptanceWorkflowStepResult[] | undefined;
+  let resultAssertions: AcceptanceResultAssertion[] | undefined;
   if (envelope.ok) {
     try {
-      const answer = parseAcceptanceAnswer(envelope.answer, input.requirement.criteria);
-      summary = answer.summary;
-      criteria = answer.criteria;
+      if (input.requirement.steps.length > 0) {
+        const answer = parseBundleAcceptanceAnswer(
+          envelope.answer,
+          input.requirement.steps,
+          input.requirement.results,
+        );
+        summary = answer.summary;
+        workflowSteps = answer.steps.map((step, index) => ({
+          ...step,
+          instruction: input.requirement.steps[index]!.instruction,
+          expected: input.requirement.steps[index]!.expected,
+        }));
+        resultAssertions = answer.results.map((result, index) =>
+          evaluateResult(input.requirement.results[index]!, result),
+        );
+        criteria = bundleCriteria(input.requirement.criteria, workflowSteps, resultAssertions);
+      } else {
+        const answer = parseAcceptanceAnswer(envelope.answer, input.requirement.criteria);
+        summary = answer.summary;
+        criteria = answer.criteria;
+      }
       status = deriveStatus(criteria);
     } catch (parseError) {
       if (!(parseError instanceof AutoE2EError)) throw parseError;
@@ -223,7 +257,17 @@ async function executeCase(input: {
     status = 'blocked';
   }
 
-  const preserved = await preserveProof(envelope.proof, input.artifactDirectory);
+  const proofSourceRoots = [
+    input.artifactDirectory,
+    path.join(resolveBetterWrightHome(), 'artifacts'),
+  ];
+  const preserved = await preserveProof(
+    envelope.proof,
+    input.artifactDirectory,
+    'proof.png',
+    proofSourceRoots,
+    input.projectRoot,
+  );
   const storedProof = toStoredPath(input.projectRoot, preserved);
   criteria = await Promise.all(criteria.map(async (criterion) => {
     const criterionProof = criterion.proof
@@ -231,6 +275,8 @@ async function executeCase(input: {
           criterion.proof,
           input.artifactDirectory,
           `${criterion.id.toLowerCase()}-proof.png`,
+          proofSourceRoots,
+          input.projectRoot,
         )
       : null;
     return {
@@ -238,6 +284,34 @@ async function executeCase(input: {
       proof: toStoredPath(input.projectRoot, criterionProof) ?? storedProof,
     };
   }));
+  if (workflowSteps) {
+    workflowSteps = await Promise.all(workflowSteps.map(async (step) => ({
+      ...step,
+      proof: toStoredPath(input.projectRoot, step.proof
+        ? await preserveProof(
+            step.proof,
+            input.artifactDirectory,
+            `${step.id.toLowerCase()}-proof.png`,
+            proofSourceRoots,
+            input.projectRoot,
+          )
+        : null),
+    })));
+  }
+  if (resultAssertions) {
+    resultAssertions = await Promise.all(resultAssertions.map(async (result) => ({
+      ...result,
+      proof: toStoredPath(input.projectRoot, result.proof
+        ? await preserveProof(
+            result.proof,
+            input.artifactDirectory,
+            `${result.id.toLowerCase()}-proof.png`,
+            proofSourceRoots,
+            input.projectRoot,
+          )
+        : null),
+    })));
+  }
   const finishedAt = input.now().toISOString();
   return {
     caseId: input.requirement.caseId,
@@ -252,7 +326,87 @@ async function executeCase(input: {
     steps: envelope.steps,
     proof: storedProof,
     error,
+    ...(input.requirement.specDigest ? { specDigest: input.requirement.specDigest } : {}),
+    ...(workflowSteps ? { workflowSteps } : {}),
+    ...(resultAssertions ? { resultAssertions } : {}),
   };
+}
+
+function evaluateResult(
+  spec: TaskResult,
+  observation: {
+    status: 'observed' | 'matched' | 'mismatched' | 'blocked';
+    actual: unknown;
+    proof: string | null;
+    error: string | null;
+  },
+): AcceptanceResultAssertion {
+  const base = {
+    id: spec.id,
+    name: spec.name,
+    expected: spec.expected,
+    actual: observation.actual as AcceptanceResultAssertion['actual'],
+    match: spec.match,
+    proof: observation.proof,
+    error: observation.error,
+  };
+  if (observation.status === 'blocked') return { ...base, status: 'blocked' };
+  if (spec.match === 'visual' || spec.match === 'table' || spec.match === 'file') {
+    if (observation.status === 'matched') return { ...base, status: 'passed' };
+    if (observation.status === 'mismatched') return { ...base, status: 'failed' };
+    return { ...base, status: 'blocked', error: '该结果需要执行器完成比较，但只返回了 observed' };
+  }
+
+  if (spec.match === 'equals') {
+    const actual = typeof observation.actual === 'string' && spec.options?.trim
+      ? observation.actual.trim()
+      : observation.actual;
+    const expected = typeof spec.expected === 'string' && spec.options?.trim
+      ? spec.expected.trim()
+      : spec.expected;
+    return { ...base, status: actual === expected ? 'passed' : 'failed' };
+  }
+  if (spec.match === 'contains') {
+    if (typeof observation.actual !== 'string' || typeof spec.expected !== 'string') {
+      return { ...base, status: 'failed', error: 'contains 的页面实际值必须是字符串' };
+    }
+    return {
+      ...base,
+      status: observation.actual.includes(spec.expected) ? 'passed' : 'failed',
+    };
+  }
+  if (typeof observation.actual !== 'number' || typeof spec.expected !== 'number') {
+    return { ...base, status: 'failed', error: 'numeric 的页面实际值必须是数字' };
+  }
+  const difference = Math.abs(observation.actual - spec.expected);
+  return {
+    ...base,
+    status: difference <= (spec.options?.numericTolerance ?? 0) ? 'passed' : 'failed',
+    difference,
+  };
+}
+
+function bundleCriteria(
+  expected: Array<{ id: string; description: string }>,
+  steps: AcceptanceWorkflowStepResult[],
+  results: AcceptanceResultAssertion[],
+): AcceptanceCriterionResult[] {
+  return [
+    ...steps.map((step, index) => ({
+      id: expected[index]!.id,
+      description: expected[index]!.description,
+      status: step.status === 'skipped' ? 'blocked' as const : step.status,
+      actual: step.actual,
+      proof: step.proof,
+    })),
+    ...results.map((result, index) => ({
+      id: expected[steps.length + index]!.id,
+      description: expected[steps.length + index]!.description,
+      status: result.status,
+      actual: typeof result.actual === 'string' ? result.actual : JSON.stringify(result.actual),
+      proof: result.proof,
+    })),
+  ];
 }
 
 function blockedCriteria(
@@ -327,12 +481,11 @@ async function stageFileInputs(
 ): Promise<{
   directory: string;
   inputs: Array<{ name: string; path: string; description?: string }>;
+  resources: Array<{ id: string; name?: string; role: 'input' | 'expected' | 'reference'; path: string }>;
 }> {
-  const betterWrightHome = path.resolve(
-    process.env.BETTERWRIGHT_HOME?.trim() || path.join(os.homedir(), '.betterwright'),
-  );
+  const betterWrightHome = resolveBetterWrightHome();
   const directory = path.join(betterWrightHome, 'artifacts', 'auto-e2e-inputs', stagingId);
-  if (inputs.length === 0) return { directory, inputs: [] };
+  if (inputs.length === 0) return { directory, inputs: [], resources: [] };
 
   const validated = await validateFileInputs(projectRoot, inputs);
 
@@ -351,9 +504,54 @@ async function stageFileInputs(
         ...(item.description ? { description: item.description } : {}),
       });
     }
-    return { directory, inputs: stagedInputs };
+    return { directory, inputs: stagedInputs, resources: [] };
   } catch (error) {
     await fs.rm(directory, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function stageBundleResources(
+  bundleRoot: string,
+  resources: TaskResource[],
+  stagingId: string,
+): Promise<{
+  directory: string;
+  inputs: Array<{ name: string; path: string; description?: string }>;
+  resources: Array<{ id: string; name?: string; role: 'input' | 'expected' | 'reference'; path: string }>;
+}> {
+  const betterWrightHome = resolveBetterWrightHome();
+  const directory = path.join(betterWrightHome, 'artifacts', 'auto-e2e-inputs', stagingId);
+  const validated = await validateFileInputs(
+    bundleRoot,
+    resources.map((resource) => ({ name: resource.name ?? resource.id, path: resource.path })),
+  );
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    const stagedResources = [];
+    for (const [index, resource] of resources.entries()) {
+      const source = validated[index]!.source;
+      const target = path.join(
+        directory,
+        `${String(index + 1).padStart(2, '0')}-${path.basename(source)}`,
+      );
+      await fs.copyFile(source, target);
+      stagedResources.push({
+        id: resource.id,
+        ...(resource.name ? { name: resource.name } : {}),
+        role: resource.role,
+        path: target,
+      });
+    }
+    return { directory, inputs: [], resources: stagedResources };
+  } catch (error) {
+    await fs.rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function resolveBetterWrightHome(): string {
+  return path.resolve(
+    process.env.BETTERWRIGHT_HOME?.trim() || path.join(os.homedir(), '.betterwright'),
+  );
 }

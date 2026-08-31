@@ -8,8 +8,6 @@ import { runCommand } from '../runtime/run-with-exit.js';
 
 export interface AcceptanceRunOptions extends RunOptions {
   spec?: string;
-  requirement?: string;
-  change?: string;
   url?: string;
   profile?: string;
   model?: string;
@@ -25,8 +23,6 @@ export async function runAcceptanceCommand(opts: AcceptanceRunOptions): Promise<
       projectRoot: ctx.projectRoot,
       config,
       spec: opts.spec,
-      requirement: opts.requirement,
-      change: opts.change,
       url: opts.url,
       profile: opts.profile,
       model: opts.model,
@@ -55,9 +51,7 @@ export async function runAcceptanceCommand(opts: AcceptanceRunOptions): Promise<
 export function registerRun(program: Command): void {
   program.command('run')
     .description('使用 BetterWright 验证需求并保存验收记录')
-    .option('--spec <path>', '读取一个 *.spec.json 文件或包含这些文件的目录（默认 .auto-e2e/specs）')
-    .option('--requirement <path>', '从 Markdown 文件读取需求与验收标准')
-    .option('--change <name>', '从 openspec/changes/<name> 读取需求')
+    .option('--spec <path>', '读取一个 Spec Bundle、spec.json 或包含多个 Bundle 的目录（默认 .auto-e2e/specs）')
     .option('--url <url>', '目标环境 URL（默认读取 project.baseUrl）')
     .option('--profile <name>', 'BetterWright 身份 Profile')
     .option('--model <model>', 'BetterWright 模型')

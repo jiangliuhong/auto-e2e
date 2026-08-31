@@ -9,10 +9,10 @@ Use auto-e2e to verify the requested behavior in the target application. Do not 
 
 ## Workflow
 
-1. Resolve the target workspace root. Inspect the requirement, relevant product behavior, and an OpenSpec change when the user names one.
+1. Resolve the target workspace root. Inspect the requirement and relevant product behavior.
 2. Read [references/contracts.md](references/contracts.md) before creating files or interpreting a run.
 3. Create or update `.auto-e2e.yaml` only when configuration is missing or the requested target differs. Never store passwords, tokens, cookies, or session data in it.
-4. Create one `.auto-e2e/specs/<name>.spec.json` file per independent scenario. Use descriptive kebab-case file names, and never combine multiple cases into one JSON file. Make every acceptance criterion atomic, observable in the product, and independent of implementation details. When a scenario uploads a local template, declare it in `inputs`; when exact page results matter, declare them in `outputs` rather than leaving expected values only in prose.
+4. Create one `.auto-e2e/specs/<name>/spec.json` bundle per independent scenario. Keep authored files under its `inputs/` and `expected/` directories. Write business-level `steps` and atomic `results`; do not add Playwright-style actions, selectors, or implementation details.
 5. Run `auto-e2e --project-root <workspace> doctor --json`, then `auto-e2e --project-root <workspace> run --json`.
 6. Treat the run as complete only when its status is `passed` and every case and criterion passed. For `failed` or `blocked`, report the affected case, failed criterion, actual observation, and proof or actionable blocker. Do not claim success merely because the command launched.
 

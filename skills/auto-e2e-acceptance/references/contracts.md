@@ -29,34 +29,46 @@ report:
 
 ## Task specification
 
-Create one file per independent scenario under `.auto-e2e/specs/`. File names must use descriptive kebab-case and end in `.spec.json`, for example `.auto-e2e/specs/order-search.spec.json`. Only files with this suffix are discovered.
+Create one self-contained `.auto-e2e/specs/<name>/spec.json` bundle per independent scenario. Paths in `files` are resolved from the bundle directory and may not escape it.
+
+```text
+.auto-e2e/specs/pl-forecast/
+├── spec.json
+├── inputs/forecast.xlsx
+└── expected/result.xlsx
+```
 
 ```json
 {
-  "taskId": "optional-stable-id",
+  "schemaVersion": 2,
+  "taskId": "PL-FORECAST-01",
   "title": "P&L 预测",
   "requirement": "上传预测模板，执行锁定计算并核对结果。",
-  "inputs": [
-    { "name": "P&L 模板", "path": "fixtures/pl-forecast.xlsx" }
+  "files": [
+    { "id": "forecast-input", "role": "input", "path": "inputs/forecast.xlsx" },
+    { "id": "expected-result", "role": "expected", "path": "expected/result.xlsx" }
   ],
-  "outputs": [
+  "steps": [
     {
-      "name": "税前利润",
-      "location": "预测结果汇总区",
-      "expected": 125000.25,
-      "match": "numeric",
-      "tolerance": 0.01
+      "id": "STEP-01",
+      "instruction": "上传预测输入文件并完成试算和锁定",
+      "uses": ["forecast-input"],
+      "expected": "锁定成功，状态显示为已锁定"
     }
   ],
-  "acceptanceCriteria": [
-    "模板上传成功并完成锁定计算"
+  "results": [
+    {
+      "id": "RESULT-01",
+      "name": "锁定结果",
+      "actual": "页面锁定结果表格",
+      "expected": { "file": "expected-result", "sheet": "锁定结果" },
+      "match": "table"
+    }
   ]
 }
 ```
 
-Required fields are `title`, `requirement`, and a non-empty `acceptanceCriteria` string array. `taskId`, `inputs`, and `outputs` are optional. Input `path` must be a relative path to a regular file inside the project; absolute paths, traversal, and symlinks escaping the project are blocked. Output `match` can be `equals`, `contains`, or `numeric`; numeric outputs may set a non-negative absolute `tolerance`. Each output becomes an additional mandatory acceptance criterion. Do not add `changedFiles`, implementation steps, selectors, or expected source-code changes.
-
-For multiple scenarios, create multiple files instead of a `cases` array. `taskId` values must be unique across discovered files. When omitted, auto-e2e derives the ID from the file name. Do not create `.auto-e2e/task-spec.json`; it is not discovered.
+Required fields are `schemaVersion`, `taskId`, `title`, `requirement`, non-empty `steps`, and non-empty `results`. A step is a business intention, not a Playwright action. File roles are `input`, `expected`, and `reference`; every declared file must be used. Files are limited to 100 MiB each and 500 MiB per bundle. Scalar matches are `equals`, `contains`, and `numeric`; `visual`, `table`, and `file` are executor comparisons. Never store credentials, selectors, or production-sensitive data in a bundle.
 
 ## Commands
 

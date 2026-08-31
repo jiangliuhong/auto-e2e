@@ -1,11 +1,18 @@
 import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { AutoE2EError, ExitCode } from '../runtime/exit-codes.js';
 import {
   ACCEPTANCE_SPEC_DIRECTORY,
   ACCEPTANCE_SPEC_SUFFIX,
+  ACCEPTANCE_BUNDLE_FILENAME,
+  isBundleTaskSpec,
   isAcceptanceSpecFileName,
-  TaskSpecSchema,
+  validateTaskSpec,
+  type TaskResource,
+  type TaskResult,
+  type TaskStep,
   type TaskExpectedOutput,
   type TaskFileInput,
 } from '../domain/task-spec.js';
@@ -20,6 +27,11 @@ export interface LoadedRequirement {
   criteria: AcceptanceCriterionInput[];
   inputs: TaskFileInput[];
   outputs: TaskExpectedOutput[];
+  resources: TaskResource[];
+  steps: TaskStep[];
+  results: TaskResult[];
+  fileBaseDirectory: string;
+  specDigest: string | null;
 }
 
 export interface LoadedRequirementSet {
@@ -32,8 +44,6 @@ export interface LoadedRequirementSet {
 export async function loadAcceptanceRequirement(input: {
   projectRoot: string;
   spec?: string;
-  requirement?: string;
-  change?: string;
 }): Promise<LoadedRequirement> {
   const loaded = await loadAcceptanceRequirements(input);
   if (loaded.requirements.length !== 1) {
@@ -45,19 +55,7 @@ export async function loadAcceptanceRequirement(input: {
 export async function loadAcceptanceRequirements(input: {
   projectRoot: string;
   spec?: string;
-  requirement?: string;
-  change?: string;
 }): Promise<LoadedRequirementSet> {
-  const selected = [input.spec, input.requirement, input.change].filter(Boolean);
-  if (selected.length > 1) {
-    throw new AutoE2EError(
-      ExitCode.Blocked,
-      '--spec、--requirement 与 --change 只能指定一个',
-    );
-  }
-
-  if (input.change) return singleRequirementSet(await loadOpenSpecChange(input.projectRoot, input.change));
-  if (input.requirement) return singleRequirementSet(await loadMarkdownRequirement(input.projectRoot, input.requirement));
   return loadTaskSpecs(input.projectRoot, input.spec);
 }
 
@@ -68,7 +66,11 @@ async function loadTaskSpecs(
   if (selection) {
     const absolute = path.resolve(projectRoot, selection);
     try {
-      if ((await fs.stat(absolute)).isDirectory()) return loadTaskSpecDirectory(projectRoot, absolute);
+      if ((await fs.stat(absolute)).isDirectory()) {
+        const bundleSpec = path.join(absolute, ACCEPTANCE_BUNDLE_FILENAME);
+        if (await exists(bundleSpec)) return singleRequirementSet(await loadTaskSpecFile(projectRoot, bundleSpec));
+        return loadTaskSpecDirectory(projectRoot, absolute);
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
@@ -83,7 +85,7 @@ async function loadTaskSpecs(
   }
 
   const directory = path.resolve(projectRoot, ACCEPTANCE_SPEC_DIRECTORY);
-  const files = await listAcceptanceSpecFiles(directory);
+  const files = await discoverTaskSpecFiles(directory);
   if (files.length > 0) return loadTaskSpecFiles(projectRoot, directory, files);
   throw new AutoE2EError(
     ExitCode.Blocked,
@@ -95,7 +97,9 @@ async function loadTaskSpecDirectory(
   projectRoot: string,
   directory: string,
 ): Promise<LoadedRequirementSet> {
-  const files = await listAcceptanceSpecFiles(directory);
+  const bundleSpec = path.join(directory, ACCEPTANCE_BUNDLE_FILENAME);
+  if (await exists(bundleSpec)) return singleRequirementSet(await loadTaskSpecFile(projectRoot, bundleSpec));
+  const files = await discoverTaskSpecFiles(directory);
   if (files.length === 0) {
     throw new AutoE2EError(
       ExitCode.Blocked,
@@ -111,7 +115,7 @@ async function loadTaskSpecFiles(
   files: string[],
 ): Promise<LoadedRequirementSet> {
   const requirements = await Promise.all(
-    files.map((fileName) => loadTaskSpecFile(projectRoot, path.join(directory, fileName))),
+    files.map((file) => loadTaskSpecFile(projectRoot, path.isAbsolute(file) ? file : path.join(directory, file))),
   );
   const ids = requirements.map((item) => item.caseId);
   if (new Set(ids).size !== ids.length) {
@@ -136,98 +140,89 @@ async function loadTaskSpecFile(projectRoot: string, absolutePath: string): Prom
       `验收用例不是合法 JSON：${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const parsed = TaskSpecSchema.safeParse(json);
-  if (!parsed.success) {
-    const detail = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
-    throw new AutoE2EError(ExitCode.Blocked, `验收用例校验失败：${detail}`);
+  const parsed = validateTaskSpec(json);
+  if (!parsed.success || !parsed.spec) {
+    throw new AutoE2EError(ExitCode.Blocked, `验收用例校验失败：${parsed.errors.join('; ')}`);
   }
   const reference = path.relative(projectRoot, absolutePath) || path.basename(absolutePath);
   const fileName = path.basename(absolutePath);
-  const inferredId = fileName.slice(0, -ACCEPTANCE_SPEC_SUFFIX.length);
+  const inferredId = fileName === ACCEPTANCE_BUNDLE_FILENAME
+    ? path.basename(path.dirname(absolutePath))
+    : fileName.slice(0, -ACCEPTANCE_SPEC_SUFFIX.length);
+  const fileBaseDirectory = fileName === ACCEPTANCE_BUNDLE_FILENAME
+    ? path.dirname(absolutePath)
+    : projectRoot;
+  if (isBundleTaskSpec(parsed.spec)) {
+    const specDigest = await computeBundleDigest(fileBaseDirectory, raw, parsed.spec.files ?? []);
+    return {
+      caseId: parsed.spec.taskId,
+      source: {
+        type: 'task-spec', reference, title: parsed.spec.title, content: parsed.spec.requirement,
+        digest: specDigest,
+      },
+      criteria: numberCriteria([
+        ...parsed.spec.steps.map(describeStep),
+        ...parsed.spec.results.map(describeResult),
+      ]),
+      inputs: [],
+      outputs: [],
+      resources: parsed.spec.files ?? [],
+      steps: parsed.spec.steps,
+      results: parsed.spec.results,
+      fileBaseDirectory,
+      specDigest,
+    };
+  }
   return {
-    caseId: parsed.data.taskId ?? inferredId,
-    source: { type: 'task-spec', reference, title: parsed.data.title, content: parsed.data.requirement },
+    caseId: parsed.spec.taskId ?? inferredId,
+    source: { type: 'task-spec', reference, title: parsed.spec.title, content: parsed.spec.requirement },
     criteria: numberCriteria([
-      ...parsed.data.acceptanceCriteria,
-      ...(parsed.data.outputs ?? []).map(describeExpectedOutput),
+      ...parsed.spec.acceptanceCriteria,
+      ...(parsed.spec.outputs ?? []).map(describeExpectedOutput),
     ]),
-    inputs: parsed.data.inputs ?? [],
-    outputs: parsed.data.outputs ?? [],
+    inputs: parsed.spec.inputs ?? [],
+    outputs: parsed.spec.outputs ?? [],
+    resources: [],
+    steps: [],
+    results: [],
+    fileBaseDirectory,
+    specDigest: null,
   };
 }
 
-async function listAcceptanceSpecFiles(directory: string): Promise<string[]> {
+async function discoverTaskSpecFiles(directory: string): Promise<string[]> {
+  const result: string[] = [];
+  async function walk(current: string): Promise<void> {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    if (entries.some((entry) => entry.isFile() && entry.name === ACCEPTANCE_BUNDLE_FILENAME)) {
+      result.push(path.join(current, ACCEPTANCE_BUNDLE_FILENAME));
+      return;
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(absolute);
+      else if (entry.isFile() && entry.name.endsWith(ACCEPTANCE_SPEC_SUFFIX) && isAcceptanceSpecFileName(entry.name)) {
+        result.push(absolute);
+      }
+    }
+  }
+  await walk(directory);
+  return result.sort((left, right) => left.localeCompare(right));
+}
+
+async function exists(file: string): Promise<boolean> {
   try {
-    return (await fs.readdir(directory, { withFileTypes: true }))
-      .filter((entry) => entry.isFile() && isAcceptanceSpecFileName(entry.name))
-      .map((entry) => entry.name)
-      .sort((left, right) => left.localeCompare(right));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw error;
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
   }
-}
-
-async function loadMarkdownRequirement(
-  projectRoot: string,
-  requirementPath: string,
-): Promise<LoadedRequirement> {
-  const absolutePath = path.resolve(projectRoot, requirementPath);
-  const content = await readText(absolutePath, '需求文件');
-  const title = extractTitle(content) ?? path.basename(absolutePath, path.extname(absolutePath));
-  const criteria = extractAcceptanceCriteria(content);
-  if (criteria.length === 0) {
-    throw new AutoE2EError(
-      ExitCode.Blocked,
-      'Markdown 需求中未找到验收标准。请使用“验收标准”标题和列表编写可验证条目。',
-    );
-  }
-  return {
-    caseId: 'CASE-01',
-    source: {
-      type: 'markdown',
-      reference: path.relative(projectRoot, absolutePath) || path.basename(absolutePath),
-      title,
-      content,
-    },
-    criteria: numberCriteria(criteria),
-    inputs: [],
-    outputs: [],
-  };
-}
-
-async function loadOpenSpecChange(projectRoot: string, change: string): Promise<LoadedRequirement> {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(change) || change.includes('..')) {
-    throw new AutoE2EError(ExitCode.Blocked, `非法 OpenSpec change 名称：${change}`);
-  }
-  const changeRoot = path.join(projectRoot, 'openspec', 'changes', change);
-  const files = await collectMarkdownFiles(changeRoot);
-  if (files.length === 0) {
-    throw new AutoE2EError(
-      ExitCode.Blocked,
-      `OpenSpec change 不存在或没有 Markdown artifacts：${change}`,
-    );
-  }
-  const documents = await Promise.all(
-    files.map(async (file) => ({ file, content: await readText(file, 'OpenSpec artifact') })),
-  );
-  const content = documents
-    .map(({ file, content: body }) => `# ${path.relative(changeRoot, file)}\n\n${body}`)
-    .join('\n\n---\n\n');
-  const criteria = documents.flatMap(({ content: body }) => extractAcceptanceCriteria(body));
-  if (criteria.length === 0) {
-    throw new AutoE2EError(
-      ExitCode.Blocked,
-      `OpenSpec change ${change} 中未找到 Requirement/Scenario 或验收标准列表`,
-    );
-  }
-  return {
-    caseId: 'CASE-01',
-    source: { type: 'openspec', reference: change, title: change, content },
-    criteria: numberCriteria([...new Set(criteria)]),
-    inputs: [],
-    outputs: [],
-  };
 }
 
 function singleRequirementSet(requirement: LoadedRequirement): LoadedRequirementSet {
@@ -237,56 +232,6 @@ function singleRequirementSet(requirement: LoadedRequirement): LoadedRequirement
     reference: requirement.source.reference,
     requirements: [requirement],
   };
-}
-
-async function collectMarkdownFiles(root: string): Promise<string[]> {
-  const result: string[] = [];
-  async function walk(directory: string): Promise<void> {
-    let entries: import('node:fs').Dirent[];
-    try {
-      entries = await fs.readdir(directory, { withFileTypes: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-      throw error;
-    }
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) await walk(absolute);
-      else if (entry.isFile() && entry.name.endsWith('.md')) result.push(absolute);
-    }
-  }
-  await walk(root);
-  return result;
-}
-
-export function extractAcceptanceCriteria(markdown: string): string[] {
-  const lines = markdown.split(/\r?\n/);
-  const criteria: string[] = [];
-  let inCriteriaSection = false;
-  for (const line of lines) {
-    const heading = line.match(/^#{1,6}\s+(.+?)\s*$/);
-    if (heading) {
-      const name = heading[1]!.trim();
-      const isScenario = /^scenario\s*:/i.test(name);
-      inCriteriaSection = !isScenario && /(验收|acceptance criteria)/i.test(name);
-      if (isScenario) criteria.push(name.replace(/^scenario\s*:\s*/i, '').trim());
-      continue;
-    }
-    const scenario = line.match(/^\s*[-*]?\s*Scenario\s*:\s*(.+)$/i);
-    if (scenario) {
-      criteria.push(scenario[1]!.trim());
-      continue;
-    }
-    if (inCriteriaSection) {
-      const item = line.match(/^\s*(?:[-*+] |\d+[.)]\s+|\[[ xX]\]\s+)(.+?)\s*$/);
-      if (item?.[1]) criteria.push(item[1].trim());
-    }
-  }
-  return criteria.filter(Boolean);
-}
-
-function extractTitle(markdown: string): string | undefined {
-  return markdown.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim();
 }
 
 function numberCriteria(criteria: string[]): AcceptanceCriterionInput[] {
@@ -306,6 +251,61 @@ function describeExpectedOutput(
     : '';
   const relation = match === 'contains' ? '包含' : '等于';
   return `输出“${output.name}”在“${output.location}”的值${relation} ${expected}${tolerance}`;
+}
+
+function describeStep(step: TaskStep): string {
+  const files = step.uses?.length ? `；使用文件：${step.uses.join(', ')}` : '';
+  return `步骤 ${step.id}：${step.instruction}${files}；完成状态：${step.expected}`;
+}
+
+function describeResult(result: TaskResult): string {
+  const expected = typeof result.expected === 'object'
+    ? `文件 ${result.expected.file}${result.expected.sheet ? `（工作表 ${result.expected.sheet}）` : ''}`
+    : JSON.stringify(result.expected);
+  return `结果 ${result.id}“${result.name}”：读取 ${result.actual}，期望 ${expected}，比较方式 ${result.match}`;
+}
+
+async function computeBundleDigest(
+  bundleRoot: string,
+  rawSpec: string,
+  resources: TaskResource[],
+): Promise<string> {
+  const canonicalRoot = await fs.realpath(bundleRoot);
+  const hash = createHash('sha256');
+  hash.update(rawSpec);
+  let totalBytes = 0;
+  for (const resource of [...resources].sort((left, right) => left.id.localeCompare(right.id))) {
+    if (path.isAbsolute(resource.path) || resource.path.split(/[\\/]+/).includes('..')) {
+      throw new AutoE2EError(ExitCode.Blocked, `Bundle 文件必须使用目录内相对路径：${resource.path}`);
+    }
+    let source: string;
+    try {
+      source = await fs.realpath(path.resolve(canonicalRoot, resource.path));
+    } catch (error) {
+      throw new AutoE2EError(
+        ExitCode.Blocked,
+        `Bundle 文件不存在或不可读：${resource.path}（${error instanceof Error ? error.message : String(error)}）`,
+        error,
+      );
+    }
+    const relative = path.relative(canonicalRoot, source);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new AutoE2EError(ExitCode.Blocked, `Bundle 文件不能逃逸用例目录：${resource.path}`);
+    }
+    const stat = await fs.stat(source);
+    if (!stat.isFile()) throw new AutoE2EError(ExitCode.Blocked, `Bundle 路径不是普通文件：${resource.path}`);
+    if (stat.size > 100 * 1024 * 1024) {
+      throw new AutoE2EError(ExitCode.Blocked, `Bundle 单文件不能超过 100 MiB：${resource.path}`);
+    }
+    totalBytes += stat.size;
+    if (totalBytes > 500 * 1024 * 1024) {
+      throw new AutoE2EError(ExitCode.Blocked, 'Bundle 引用文件总大小不能超过 500 MiB');
+    }
+    hash.update(resource.id);
+    hash.update(resource.path);
+    for await (const chunk of createReadStream(source)) hash.update(chunk);
+  }
+  return `sha256:${hash.digest('hex')}`;
 }
 
 async function readText(file: string, label: string): Promise<string> {

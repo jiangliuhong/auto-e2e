@@ -244,46 +244,37 @@ async function nearestExistingDirectory(start: string): Promise<string> {
 }
 
 async function checkSpecifications(projectRoot: string): Promise<{ specs: DoctorCheck; inputs: DoctorCheck }> {
-  const directory = path.join(projectRoot, ACCEPTANCE_SPEC_DIRECTORY);
-  let names: string[];
-  try {
-    names = (await fs.readdir(directory)).filter(isAcceptanceSpecFileName);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      return {
-        specs: makeCheck('project.specs', '验收规格', 'fail', errorMessage(error)),
-        inputs: makeCheck('project.inputs', '输入文件', 'skip', '验收规格无法读取'),
-      };
-    }
-    names = [];
-  }
-  if (names.length === 0) {
-    return {
-      specs: makeCheck('project.specs', '验收规格', 'warn', `未找到 ${ACCEPTANCE_SPEC_DIRECTORY}/*.spec.json`, '创建至少一个 *.spec.json 后即可执行默认 run'),
-      inputs: makeCheck('project.inputs', '输入文件', 'skip', '没有可检查的验收规格'),
-    };
-  }
-
   let loaded: LoadedRequirementSet;
   try {
     loaded = await loadAcceptanceRequirements({ projectRoot });
   } catch (error) {
+    if (errorMessage(error).includes('未找到验收用例')) {
+      return {
+        specs: makeCheck('project.specs', '验收规格', 'warn', `未找到 ${ACCEPTANCE_SPEC_DIRECTORY}/**/spec.json`, '创建至少一个 Spec Bundle 后即可执行默认 run'),
+        inputs: makeCheck('project.inputs', 'Bundle 文件', 'skip', '没有可检查的验收规格'),
+      };
+    }
     return {
       specs: makeCheck('project.specs', '验收规格', 'fail', errorMessage(error), '修复规格 JSON、Schema 或重复 taskId'),
-      inputs: makeCheck('project.inputs', '输入文件', 'skip', '验收规格无效'),
+      inputs: makeCheck('project.inputs', 'Bundle 文件', 'skip', '验收规格无效'),
     };
   }
-  const inputs = loaded.requirements.flatMap((item) => item.inputs);
   try {
-    await validateFileInputs(projectRoot, inputs);
+    for (const requirement of loaded.requirements) {
+      await validateFileInputs(requirement.fileBaseDirectory, requirement.inputs);
+    }
+    const fileCount = loaded.requirements.reduce(
+      (total, requirement) => total + requirement.inputs.length + requirement.resources.length,
+      0,
+    );
     return {
       specs: makeCheck('project.specs', '验收规格', 'pass', `${loaded.requirements.length} 个用例校验通过`),
-      inputs: makeCheck('project.inputs', '输入文件', 'pass', inputs.length ? `${inputs.length} 个输入文件可用` : '未配置输入文件'),
+      inputs: makeCheck('project.inputs', 'Bundle 文件', 'pass', fileCount ? `${fileCount} 个文件可用` : '未配置文件'),
     };
   } catch (error) {
     return {
       specs: makeCheck('project.specs', '验收规格', 'pass', `${loaded.requirements.length} 个用例校验通过`),
-      inputs: makeCheck('project.inputs', '输入文件', 'fail', errorMessage(error), '修复 inputs[].path，并确保文件位于项目内且可读'),
+      inputs: makeCheck('project.inputs', 'Bundle 文件', 'fail', errorMessage(error), '修复文件路径，并确保文件位于用例目录内且可读'),
     };
   }
 }

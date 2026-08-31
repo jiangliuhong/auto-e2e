@@ -29,28 +29,35 @@ report:
 
 ## Task specification
 
-Create one `.auto-e2e/specs/<name>.spec.json` file per independent scenario. This is a strict schema.
+Create one self-contained `.auto-e2e/specs/<name>/spec.json` bundle per independent scenario. Paths in `files` are resolved from the bundle directory and may not escape it.
 
 ```json
 {
+  "schemaVersion": 2,
   "taskId": "PL-FORECAST-01",
   "title": "P&L 预测",
   "requirement": "上传预测模板，执行锁定计算并核对结果。",
-  "inputs": [{ "name": "P&L 模板", "path": "fixtures/pl-forecast.xlsx" }],
-  "outputs": [{
-    "name": "税前利润",
-    "location": "预测结果汇总区",
-    "expected": 125000.25,
-    "match": "numeric",
-    "tolerance": 0.01
+  "files": [
+    { "id": "forecast-input", "role": "input", "path": "inputs/forecast.xlsx" },
+    { "id": "expected-result", "role": "expected", "path": "expected/result.xlsx" }
+  ],
+  "steps": [{
+    "id": "STEP-01",
+    "instruction": "上传预测输入文件并完成试算和锁定",
+    "uses": ["forecast-input"],
+    "expected": "锁定成功，状态显示为已锁定"
   }],
-  "acceptanceCriteria": [
-    "模板上传成功并完成锁定计算"
-  ]
+  "results": [{
+    "id": "RESULT-01",
+    "name": "锁定结果",
+    "actual": "页面锁定结果表格",
+    "expected": { "file": "expected-result", "sheet": "锁定结果" },
+    "match": "table"
+  }]
 }
 ```
 
-Required fields are `title`, `requirement`, and a non-empty `acceptanceCriteria` string array. `taskId`, `inputs`, and `outputs` are optional. Input paths must be relative regular files inside the project. Output matching supports `equals`, `contains`, and `numeric`; numeric outputs may set a non-negative absolute `tolerance`. Each output becomes an additional mandatory acceptance criterion. Do not add `changedFiles`, implementation steps, selectors, or expected source-code changes.
+Required fields are `schemaVersion`, `taskId`, `title`, `requirement`, non-empty `steps`, and non-empty `results`. A step is a business intention, not a Playwright action. File roles are `input`, `expected`, and `reference`; every declared file must be used. Files are limited to 100 MiB each and 500 MiB per bundle. Scalar matches are `equals`, `contains`, and `numeric`; `visual`, `table`, and `file` are executor comparisons. Never store credentials, selectors, or production-sensitive data in a bundle.
 
 ## Commands
 
