@@ -7,5 +7,7 @@ export * from './acceptance/requirement-loader.js';
 export * from './acceptance/betterwright-cli.js';
 export * from './acceptance/history-store.js';
 export * from './acceptance/acceptance-runner.js';
+export * from './acceptance/preflight.js';
+export * from './doctor/doctor.js';
 export * from './server/server.js';
 export * from './workspace/workspace-registry.js';

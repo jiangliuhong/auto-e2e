@@ -29,7 +29,19 @@ auto-e2e 的唯一工作流是：读取需求 → 固化编号验收标准 → �
 
 ### doctor
 
-执行 `betterwright doctor --json`。环境不完整时返回退出码 2。
+`auto-e2e doctor` 默认按两组检查验收运行条件：
+
+- `tool`：Node.js、SQLite、BetterWright、浏览器 backend 和模型后端。
+- `project`：项目配置、存储路径、验收规格、输入文件和目标 URL 连通性。
+
+```bash
+auto-e2e doctor
+auto-e2e doctor --tool
+auto-e2e doctor --project
+auto-e2e doctor --json
+```
+
+`--tool` 与 `--project` 互斥。每项结果为 `pass`、`warn`、`fail` 或 `skip`；任一 `fail` 返回退出码 2，只有 warning 仍返回 0。未找到默认验收规格只会警告。doctor 不启动真实浏览器任务、不调用模型、不写入验收历史。
 
 ### run
 

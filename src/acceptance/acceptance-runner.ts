@@ -22,6 +22,7 @@ import {
   preserveProof,
 } from './betterwright-cli.js';
 import { AcceptanceHistoryStore } from './history-store.js';
+import { validateFileInputs, validateTargetUrl } from './preflight.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -266,19 +267,6 @@ function blockedCriteria(
   }));
 }
 
-function validateTargetUrl(raw: string): string {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('仅支持 http/https');
-    return url.toString();
-  } catch (error) {
-    throw new AutoE2EError(
-      ExitCode.Blocked,
-      `目标 URL 无效：${raw}（${error instanceof Error ? error.message : String(error)}）`,
-    );
-  }
-}
-
 function deriveStatus(criteria: AcceptanceCriterionResult[]): AcceptanceRun['status'] {
   if (criteria.some((criterion) => criterion.status === 'failed')) return 'failed';
   if (criteria.some((criterion) => criterion.status === 'blocked')) return 'blocked';
@@ -346,42 +334,7 @@ async function stageFileInputs(
   const directory = path.join(betterWrightHome, 'artifacts', 'auto-e2e-inputs', stagingId);
   if (inputs.length === 0) return { directory, inputs: [] };
 
-  let canonicalProjectRoot: string;
-  try {
-    canonicalProjectRoot = await fs.realpath(projectRoot);
-  } catch (error) {
-    throw new AutoE2EError(
-      ExitCode.Blocked,
-      `无法读取项目目录：${projectRoot}（${error instanceof Error ? error.message : String(error)}）`,
-      error,
-    );
-  }
-
-  const validated = [];
-  for (const item of inputs) {
-    if (path.isAbsolute(item.path)) {
-      throw new AutoE2EError(ExitCode.Blocked, `输入文件必须使用项目内相对路径：${item.path}`);
-    }
-    const requested = path.resolve(canonicalProjectRoot, item.path);
-    let source: string;
-    try {
-      source = await fs.realpath(requested);
-    } catch (error) {
-      throw new AutoE2EError(
-        ExitCode.Blocked,
-        `输入文件不存在或不可读：${item.path}（${error instanceof Error ? error.message : String(error)}）`,
-        error,
-      );
-    }
-    const relative = path.relative(canonicalProjectRoot, source);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-      throw new AutoE2EError(ExitCode.Blocked, `输入文件不能位于项目目录之外：${item.path}`);
-    }
-    if (!(await fs.stat(source)).isFile()) {
-      throw new AutoE2EError(ExitCode.Blocked, `输入路径不是普通文件：${item.path}`);
-    }
-    validated.push({ item, source });
-  }
+  const validated = await validateFileInputs(projectRoot, inputs);
 
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   try {

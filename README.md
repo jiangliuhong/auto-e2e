@@ -46,8 +46,12 @@ report:
 ## 使用
 
 ```bash
-# 检查 BetterWright、浏览器和模型登录
+# 检查工具链和当前项目
 auto-e2e doctor
+
+# 仅检查其中一类（两个选项互斥）
+auto-e2e doctor --tool
+auto-e2e doctor --project
 
 # 默认按文件名顺序运行 .auto-e2e/specs/*.spec.json
 auto-e2e run --json

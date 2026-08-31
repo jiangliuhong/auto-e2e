@@ -23,6 +23,24 @@ const BetterWrightExecEnvelopeSchema = z.object({
   proof: z.string().nullish(),
 }).passthrough();
 
+export const BetterWrightDoctorCheckSchema = z.object({
+  group: z.string().min(1),
+  label: z.string().min(1),
+  status: z.enum(['ok', 'warn', 'fail']),
+  detail: z.string(),
+  fix: z.string().nullish(),
+}).passthrough();
+
+export const BetterWrightDoctorReportSchema = z.object({
+  ready: z.boolean(),
+  browser: z.string().nullish(),
+  browser_selection_reason: z.string().nullish(),
+  playwright_version: z.string().nullish(),
+  checks: z.array(BetterWrightDoctorCheckSchema),
+}).passthrough();
+
+export type BetterWrightDoctorReport = z.infer<typeof BetterWrightDoctorReportSchema>;
+
 export type BetterWrightExecEnvelope = z.infer<typeof BetterWrightExecEnvelopeSchema>;
 
 export interface BetterWrightCliOptions {
@@ -54,7 +72,7 @@ export class BetterWrightCli {
     this.env = options.env;
   }
 
-  async doctor(): Promise<unknown> {
+  async doctor(): Promise<BetterWrightDoctorReport> {
     const result = await this.execute(['doctor', '--json']);
     if (result.exitCode !== 0) {
       throw new AutoE2EError(
@@ -63,8 +81,17 @@ export class BetterWrightCli {
       );
     }
     try {
-      return JSON.parse(result.stdout);
+      const raw: unknown = JSON.parse(result.stdout);
+      const parsed = BetterWrightDoctorReportSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new AutoE2EError(
+          ExitCode.Blocked,
+          `BetterWright doctor 结果结构无效：${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`,
+        );
+      }
+      return parsed.data;
     } catch (error) {
+      if (error instanceof AutoE2EError) throw error;
       throw new AutoE2EError(
         ExitCode.Blocked,
         `BetterWright doctor 未返回合法 JSON：${error instanceof Error ? error.message : String(error)}`,

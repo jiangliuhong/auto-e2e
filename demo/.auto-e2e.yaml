@@ -1,0 +1,12 @@
+project:
+  name: baidu-search-demo
+  baseUrl: https://www.baidu.com
+
+acceptance:
+  model: gpt-5.6-sol
+  profile: baidu-search-demo
+  headed: false
+
+report:
+  outputDirectory: .auto-e2e/reports
+  artifactDirectory: .auto-e2e/artifacts

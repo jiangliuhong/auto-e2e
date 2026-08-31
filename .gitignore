@@ -6,7 +6,13 @@ coverage/
 .auto-e2e/artifacts/
 .auto-e2e/reports/
 .auto-e2e/history.sqlite*
-demo/
+# demo 仅提交 auto-e2e 配置与验收用例，运行产物仍保持忽略
+demo/*
+!demo/.auto-e2e.yaml
+!demo/.auto-e2e/
+demo/.auto-e2e/*
+!demo/.auto-e2e/specs/
+!demo/.auto-e2e/specs/**
 .zcode/
 test-results/
 .DS_Store
