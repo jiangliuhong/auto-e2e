@@ -137,6 +137,26 @@ export class BetterWrightCli {
     }
   }
 
+  async initialize(): Promise<void> {
+    const result = await this.execute(['init', '--yes', '--skip-agents'], undefined, undefined, true);
+    if (result.exitCode !== 0) {
+      throw new AutoE2EError(
+        ExitCode.Blocked,
+        `BetterWright 初始化失败：${result.stderr.trim() || result.stdout.trim() || `退出码 ${result.exitCode}`}`,
+      );
+    }
+  }
+
+  async login(provider: 'codex' | 'grok'): Promise<void> {
+    const result = await this.execute(['auth', '--login', provider], undefined, undefined, true);
+    if (result.exitCode !== 0) {
+      throw new AutoE2EError(
+        ExitCode.Blocked,
+        `BetterWright ${provider} 登录失败：${result.stderr.trim() || result.stdout.trim() || `退出码 ${result.exitCode}`}`,
+      );
+    }
+  }
+
   async exec(input: {
     prompt: string;
     model: string;
@@ -352,6 +372,7 @@ export class BetterWrightCli {
     args: string[],
     stdin?: string,
     signal?: AbortSignal,
+    streamStdout = false,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
@@ -380,7 +401,12 @@ export class BetterWrightCli {
       signal?.addEventListener('abort', onAbort, { once: true });
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
-      child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+      child.stdout.on('data', (chunk: string) => {
+        stdout += chunk;
+        if (streamStdout) {
+          for (const line of chunk.split(/\r?\n/).filter(Boolean)) this.logger?.info(line);
+        }
+      });
       child.stderr.on('data', (chunk: string) => {
         stderr += chunk;
         for (const line of chunk.split(/\r?\n/).filter(Boolean)) this.logger?.info(line);

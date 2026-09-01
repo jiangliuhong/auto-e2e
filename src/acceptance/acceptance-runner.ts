@@ -40,6 +40,7 @@ export interface ExecuteAcceptanceOptions {
   session?: string;
   headed?: boolean;
   fresh?: boolean;
+  concurrency?: number;
   betterwrightBinary?: string;
   logger?: Logger;
   now?: () => Date;
@@ -54,6 +55,7 @@ export interface AcceptanceCaseLifecycleContext {
   total: number;
   profile: string;
   session: string;
+  concurrency: number;
 }
 
 export interface AcceptanceRunLifecycle {
@@ -76,6 +78,9 @@ export async function executeAcceptance(
   const profile = options.profile ?? options.config.acceptance.profile;
   const model = options.model ?? options.config.acceptance.model;
   const baseSession = options.session ?? createSessionName(options.config.project.name, runId);
+  const concurrency = resolveConcurrency(
+    options.concurrency ?? options.config.acceptance.concurrency,
+  );
   const artifactRoot = path.resolve(
     options.projectRoot,
     options.config.report.artifactDirectory,
@@ -86,43 +91,47 @@ export async function executeAcceptance(
     cwd: options.projectRoot,
     logger: options.logger,
   });
-  const cases: AcceptanceCaseRun[] = [];
-  for (const [index, requirement] of requirementSet.requirements.entries()) {
-    throwIfCancelled(options.signal);
-    const session = requirementSet.suite
-      ? `${baseSession}-${safeCaseId(requirement.caseId, index)}`
-      : baseSession;
-    const lifecycleContext: AcceptanceCaseLifecycleContext = {
-      caseId: requirement.caseId,
-      title: requirement.source.title,
-      index,
-      total: requirementSet.requirements.length,
-      profile,
-      session,
-    };
-    await options.lifecycle?.onCaseStarting?.(lifecycleContext);
-    const caseRun = await executeCase({
-      requirement,
-      targetUrl,
-      profile,
-      model,
-      session,
-      artifactDirectory: requirementSet.suite
-        ? path.join(artifactRoot, safeCaseId(requirement.caseId, index))
-        : artifactRoot,
-      projectRoot: options.projectRoot,
-      forbiddenActions: options.config.acceptance.forbiddenActions,
-      headed: options.headed ?? options.config.acceptance.headed,
-      fresh: options.fresh,
-      client,
-      now,
-      stagingId: `${runId}-${safeCaseId(requirement.caseId, index)}`,
-      signal: options.signal,
-    });
-    throwIfCancelled(options.signal);
-    cases.push(caseRun);
-    await options.lifecycle?.onCaseCompleted?.(lifecycleContext, caseRun);
-  }
+  const cases = await mapWithConcurrency(
+    requirementSet.requirements,
+    concurrency,
+    async (requirement, index) => {
+      throwIfCancelled(options.signal);
+      const session = requirementSet.suite
+        ? `${baseSession}-${safeCaseId(requirement.caseId, index)}`
+        : baseSession;
+      const lifecycleContext: AcceptanceCaseLifecycleContext = {
+        caseId: requirement.caseId,
+        title: requirement.source.title,
+        index,
+        total: requirementSet.requirements.length,
+        profile,
+        session,
+        concurrency,
+      };
+      await options.lifecycle?.onCaseStarting?.(lifecycleContext);
+      const caseRun = await executeCase({
+        requirement,
+        targetUrl,
+        profile,
+        model,
+        session,
+        artifactDirectory: requirementSet.suite
+          ? path.join(artifactRoot, safeCaseId(requirement.caseId, index))
+          : artifactRoot,
+        projectRoot: options.projectRoot,
+        forbiddenActions: options.config.acceptance.forbiddenActions,
+        headed: options.headed ?? options.config.acceptance.headed,
+        fresh: options.fresh,
+        client,
+        now,
+        stagingId: `${runId}-${safeCaseId(requirement.caseId, index)}`,
+        signal: options.signal,
+      });
+      throwIfCancelled(options.signal);
+      await options.lifecycle?.onCaseCompleted?.(lifecycleContext, caseRun);
+      return caseRun;
+    },
+  );
 
   const finishedAt = now().toISOString();
   const commit = await readCommit(options.projectRoot);
@@ -191,6 +200,41 @@ export async function executeAcceptance(
   await store.save(run);
   await writeRunSnapshot(options.projectRoot, options.config, run);
   return run;
+}
+
+function resolveConcurrency(value: number): number {
+  if (!Number.isInteger(value) || value < 1 || value > 32) {
+    throw new AutoE2EError(ExitCode.Blocked, '并发数必须是 1 到 32 之间的整数');
+  }
+  return value;
+}
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  execute: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  let hasError = false;
+  let firstError: unknown;
+  const worker = async (): Promise<void> => {
+    while (!hasError) {
+      const index = nextIndex++;
+      if (index >= values.length) return;
+      try {
+        results[index] = await execute(values[index]!, index);
+      } catch (error) {
+        hasError = true;
+        firstError = error;
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, () => worker()),
+  );
+  if (hasError) throw firstError;
+  return results;
 }
 
 async function executeCase(input: {

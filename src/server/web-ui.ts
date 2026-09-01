@@ -383,21 +383,51 @@ export function renderDashboardHtml(): string {
     }
 
     #workspace-view { flex: 1; min-height: 0; }
-    body[data-page="reports"] main { overflow: hidden; }
+    body[data-page="reports"] main {
+      max-width: none;
+      overflow: hidden;
+      padding: 12px 16px 16px;
+      gap: 0;
+    }
     .page-view[data-page-view="reports"] {
       height: 100%;
       min-height: 0;
       display: flex;
       flex-direction: column;
     }
-    .page-view[data-page-view="reports"] .page-heading { flex-shrink: 0; }
+    .page-view[data-page-view="reports"] .page-heading {
+      align-items: center;
+      flex-shrink: 0;
+      margin-bottom: 10px;
+      min-height: 36px;
+    }
+    .page-view[data-page-view="reports"] .page-heading > div {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      min-width: 0;
+    }
+    .page-view[data-page-view="reports"] .page-heading h2 {
+      flex-shrink: 0;
+      font-size: 18px;
+    }
+    .page-view[data-page-view="reports"] .page-heading p {
+      margin-top: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .page-view[data-page-view="reports"] .grid-1-2 {
       flex: 1;
       min-height: 0;
+      gap: 12px;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     }
     .page-view[data-page-view="reports"] .card {
       min-height: 0;
       overflow: hidden;
+      padding: 16px;
+      gap: 12px;
     }
     .page-view[data-page-view="reports"] .runs-list {
       flex: 1;
@@ -478,6 +508,55 @@ export function renderDashboardHtml(): string {
       min-width: 0;
     }
     .settings-value strong { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
+
+    .doctor-toolbar {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .doctor-scope { width: min(320px, 100%); }
+    .doctor-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .doctor-summary-item {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--panel-elevated);
+    }
+    .doctor-summary-item strong { display: block; margin-top: 3px; font-size: 20px; }
+    .doctor-group-list { display: flex; flex-direction: column; gap: 14px; }
+    .doctor-check-list { display: flex; flex-direction: column; }
+    .doctor-check {
+      display: grid;
+      grid-template-columns: 76px minmax(150px, 0.35fr) minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      padding: 12px 0;
+      border-top: 1px solid var(--border);
+    }
+    .doctor-check:first-child { border-top: 0; padding-top: 0; }
+    .doctor-check:last-child { padding-bottom: 0; }
+    .doctor-check-label { font-weight: 600; font-size: 12.5px; }
+    .doctor-check-detail { color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+    .doctor-check-fix { margin-top: 5px; color: var(--warn); }
+    .doctor-status {
+      display: inline-flex;
+      justify-content: center;
+      width: 58px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .doctor-status.pass { color: var(--good); background: var(--good-bg); border: 1px solid var(--good-border); }
+    .doctor-status.warn { color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn-border); }
+    .doctor-status.fail { color: var(--bad); background: var(--bad-bg); border: 1px solid var(--bad-border); }
+    .doctor-status.skip { color: var(--text-muted); background: var(--panel-elevated); border: 1px solid var(--border); }
 
     /* Common Components */
     .row { display: flex; align-items: center; gap: 10px; }
@@ -835,6 +914,72 @@ export function renderDashboardHtml(): string {
       display: flex;
       flex-direction: column;
       gap: 16px;
+    }
+    .case-filter-bar {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 132px auto;
+      align-items: center;
+      gap: 10px;
+    }
+    .case-filter-count {
+      color: var(--text-muted);
+      font-size: 12px;
+      white-space: nowrap;
+      text-align: right;
+    }
+    .case-picker-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 8px;
+    }
+    .case-picker-item {
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--panel-elevated);
+      color: var(--text-secondary);
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .case-picker-item:hover {
+      border-color: var(--accent);
+      background: var(--hover);
+    }
+    .case-picker-item.active {
+      border-color: var(--accent);
+      background: var(--accent-light);
+      box-shadow: 0 0 0 1px var(--accent-border);
+      color: var(--text);
+    }
+    .case-picker-item-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12.5px;
+      font-weight: 650;
+    }
+    .case-picker-item-title > span:first-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .case-picker-item-summary {
+      margin-top: 5px;
+      overflow: hidden;
+      color: var(--text-muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .case-report {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--panel-card);
     }
     .detail-header-card {
       background: var(--panel-elevated);
@@ -1236,6 +1381,7 @@ export function renderDashboardHtml(): string {
 
     @media (max-width: 1024px) {
       .grid-2, .grid-1-2 { grid-template-columns: 1fr; }
+      .page-view[data-page-view="reports"] .grid-1-2 { grid-template-columns: 1fr; }
       .overview-metrics { grid-template-columns: repeat(2, 1fr); }
       .overview-grid { grid-template-columns: 1fr; }
       .header-left { gap: 12px; }
@@ -1266,6 +1412,9 @@ export function renderDashboardHtml(): string {
       #detail-card #detail { max-height: 65vh; }
       .overview-metrics { grid-template-columns: 1fr 1fr; }
       .settings-summary { grid-template-columns: 1fr; }
+      .doctor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .doctor-check { grid-template-columns: 64px 1fr; }
+      .doctor-check-detail { grid-column: 2; }
       .brand .sub { display: none; }
       .workspace-picker-btn { max-width: 220px; }
       .header-actions .server-status, #btn-header-manage-ws { display: none; }
@@ -1274,6 +1423,19 @@ export function renderDashboardHtml(): string {
       .nav-item span { display: none; }
       .overview-metrics { grid-template-columns: 1fr; }
       .page-heading { flex-direction: column; }
+      .page-view[data-page-view="reports"] .page-heading {
+        align-items: stretch;
+      }
+      .page-view[data-page-view="reports"] .page-heading > div {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .page-view[data-page-view="reports"] .page-heading p {
+        white-space: normal;
+      }
+      .case-filter-bar { grid-template-columns: 1fr; }
+      .case-filter-count { text-align: left; }
     }
   </style>
 </head>
@@ -1346,6 +1508,10 @@ export function renderDashboardHtml(): string {
         <button class="nav-item" data-nav-page="reports">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></svg>
           <span>运行报告</span>
+        </button>
+        <button class="nav-item" data-nav-page="doctor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>环境诊断</span>
         </button>
         <button class="nav-item" data-nav-page="settings">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09A1.65 1.65 0 0 0 20.91 10H21a2 2 0 1 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"/></svg>
@@ -1469,6 +1635,11 @@ export function renderDashboardHtml(): string {
                   <input class="input" id="run-model" placeholder="claude-3-5-sonnet-latest">
                 </div>
               </div>
+              <div class="form-field">
+                <div class="label">并发用例数</div>
+                <input class="input" id="run-concurrency" type="number" min="1" max="32" step="1" value="1">
+                <div class="sub" style="font-size:11px">默认 1；提高后会同时启动多个独立 BetterWright Session。</div>
+              </div>
               <div class="run-scope manual-login-panel">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 <div class="manual-login-copy"><strong>需要人工登录？</strong><br>使用当前目标 URL 和 Profile 打开可交互浏览器；登录状态会被后续验收复用。</div>
@@ -1561,6 +1732,7 @@ export function renderDashboardHtml(): string {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
                 验收详情
               </div>
+              <button class="button danger sm" id="delete-run" disabled title="删除当前运行报告及其截图证据">删除报告</button>
             </div>
             <div id="detail">
               <div class="empty-state" style="padding:40px 10px">
@@ -1570,6 +1742,33 @@ export function renderDashboardHtml(): string {
               </div>
             </div>
           </div>
+          </div>
+        </section>
+
+        <!-- Doctor -->
+        <section class="page-view hidden" data-page-view="doctor">
+          <div class="page-heading">
+            <div><h2>环境诊断</h2><p>检查 auto-e2e 工具链和当前项目是否具备验收运行条件。</p></div>
+          </div>
+          <div class="card">
+            <div class="doctor-toolbar">
+              <div class="form-field doctor-scope">
+                <div class="label">检查范围</div>
+                <select class="select" id="doctor-scope">
+                  <option value="all">全部：工具链与当前项目</option>
+                  <option value="tool">仅工具链</option>
+                  <option value="project">仅当前项目</option>
+                </select>
+              </div>
+              <button class="button primary" id="run-doctor">开始诊断</button>
+            </div>
+            <div id="doctor-result">
+              <div class="empty-state" style="padding:34px 10px">
+                <div class="empty-icon">🩺</div>
+                <div style="font-size:14px;font-weight:600;color:var(--text)">尚未运行诊断</div>
+                <p class="sub" style="font-size:12px">选择检查范围后开始诊断。</p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1587,6 +1786,7 @@ export function renderDashboardHtml(): string {
               <div class="settings-value"><span class="sub">目标 URL</span><strong id="settings-url">—</strong></div>
               <div class="settings-value"><span class="sub">默认 Profile</span><strong id="settings-profile">—</strong></div>
               <div class="settings-value"><span class="sub">默认 Model</span><strong id="settings-model">—</strong></div>
+              <div class="settings-value"><span class="sub">并发用例数</span><strong id="settings-concurrency">—</strong></div>
               <div class="settings-value"><span class="sub">浏览器模式</span><strong id="settings-headed">—</strong></div>
             </div>
           </div>
@@ -1689,6 +1889,10 @@ export function renderDashboardHtml(): string {
               </div>
             </div>
             <div class="form-field">
+              <div class="label">并发用例数 (acceptance.concurrency)</div>
+              <input class="input" id="edit-ws-concurrency" type="number" min="1" max="32" step="1" value="1">
+            </div>
+            <div class="form-field">
               <label class="checkbox-label" style="margin-top:4px">
                 <input type="checkbox" id="edit-ws-headed">
                 <span>默认开启浏览器窗口 (Headed 模式)</span>
@@ -1721,7 +1925,7 @@ export function renderDashboardHtml(): string {
   </div>
 
   <script>
-    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list', currentPage: 'overview', runEvents: null, runWatchStop: null, liveViewerUrl: null };
+    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list', currentPage: 'overview', runEvents: null, runWatchStop: null, liveViewerUrl: null, doctorReport: null };
     const el = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
@@ -1736,7 +1940,7 @@ export function renderDashboardHtml(): string {
 
     function renderRoute() {
       const parts = routeParts();
-      const allowed = ['overview', 'specs', 'run', 'reports', 'settings'];
+      const allowed = ['overview', 'specs', 'run', 'reports', 'doctor', 'settings'];
       const page = allowed.includes(parts[0]) ? parts[0] : 'overview';
       state.currentPage = page;
       document.body.dataset.page = page;
@@ -1961,6 +2165,65 @@ export function renderDashboardHtml(): string {
       return ({ passed: '通过', failed: '失败', blocked: '阻塞', error: '异常' })[status] || '暂无';
     }
 
+    function doctorStatusLabel(status) {
+      return ({ pass: 'PASS', warn: 'WARN', fail: 'FAIL', skip: 'SKIP' })[status] || String(status).toUpperCase();
+    }
+
+    function renderDoctorReport(report) {
+      state.doctorReport = report;
+      const result = el('doctor-result');
+      const summary = report.summary;
+      const groups = [['tool', '工具链'], ['project', '当前项目']]
+        .filter(([name]) => report.groups[name]);
+      result.innerHTML = '<div class="stack">' +
+        '<div class="row between"><div><strong>' + (report.ok ? '诊断通过，可以运行验收' : '诊断发现阻塞项') + '</strong>' +
+        '<div class="sub" style="font-size:11px;margin-top:3px">检查范围：' + esc(({ all: '全部', tool: '工具链', project: '当前项目' })[report.scope] || report.scope) + '</div></div>' +
+        '<span class="status-badge ' + (report.ok ? 'passed' : 'failed') + '">' + (report.ok ? 'READY' : 'BLOCKED') + '</span></div>' +
+        '<div class="doctor-summary">' +
+          '<div class="doctor-summary-item"><span class="sub">通过</span><strong style="color:var(--good)">' + esc(summary.pass) + '</strong></div>' +
+          '<div class="doctor-summary-item"><span class="sub">警告</span><strong style="color:var(--warn)">' + esc(summary.warn) + '</strong></div>' +
+          '<div class="doctor-summary-item"><span class="sub">失败</span><strong style="color:var(--bad)">' + esc(summary.fail) + '</strong></div>' +
+          '<div class="doctor-summary-item"><span class="sub">跳过</span><strong style="color:var(--text-muted)">' + esc(summary.skip) + '</strong></div>' +
+        '</div>' +
+        '<div class="doctor-group-list">' + groups.map(([name, title]) => {
+          const group = report.groups[name];
+          return '<div class="card" style="box-shadow:none">' +
+            '<div class="card-header"><div class="card-title">' + title + '</div><span class="doctor-status ' + esc(group.status) + '">' + doctorStatusLabel(group.status) + '</span></div>' +
+            '<div class="doctor-check-list">' + group.checks.map((check) =>
+              '<div class="doctor-check">' +
+                '<div><span class="doctor-status ' + esc(check.status) + '">' + doctorStatusLabel(check.status) + '</span></div>' +
+                '<div class="doctor-check-label">' + esc(check.label) + '</div>' +
+                '<div class="doctor-check-detail">' + esc(check.detail) +
+                  (check.fix && check.status !== 'pass' ? '<div class="doctor-check-fix">修复：' + esc(check.fix) + '</div>' : '') +
+                '</div>' +
+              '</div>'
+            ).join('') + '</div>' +
+          '</div>';
+        }).join('') + '</div>' +
+      '</div>';
+    }
+
+    async function runDoctorCheck() {
+      if (!state.selected) return;
+      const button = el('run-doctor');
+      button.disabled = true;
+      button.innerHTML = '<span class="status-dot-pulse" style="background:#fff"></span> 正在诊断...';
+      try {
+        const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/doctor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope: el('doctor-scope').value })
+        });
+        renderDoctorReport(data.report);
+        toast(data.report.ok ? '环境诊断通过' : '环境诊断发现阻塞项', !data.report.ok);
+      } catch (error) {
+        toast('环境诊断失败：' + error.message, true);
+      } finally {
+        button.disabled = false;
+        button.textContent = '重新诊断';
+      }
+    }
+
     function renderOverview() {
       const runs = state.runs.slice(0, 20);
       const latest = runs[0];
@@ -2024,6 +2287,11 @@ export function renderDashboardHtml(): string {
     async function selectWorkspace(id) {
       const changed = state.selected !== id;
       if (changed) clearLiveViewer();
+      if (changed) {
+        state.doctorReport = null;
+        el('doctor-result').innerHTML = '<div class="empty-state" style="padding:34px 10px"><div class="empty-icon">🩺</div><div style="font-size:14px;font-weight:600;color:var(--text)">尚未运行诊断</div><p class="sub" style="font-size:12px">选择检查范围后开始诊断。</p></div>';
+        el('run-doctor').textContent = '开始诊断';
+      }
       state.selected = id;
       localStorage.setItem('auto-e2e-workspace', id);
       el('empty').classList.add('hidden');
@@ -2043,6 +2311,7 @@ export function renderDashboardHtml(): string {
       el('run-url').value = data.config.project.baseUrl;
       el('run-profile').value = data.config.acceptance.profile;
       el('run-model').value = data.config.acceptance.model;
+      el('run-concurrency').value = data.config.acceptance.concurrency;
       el('run-headed').checked = data.config.acceptance.headed;
 
       el('settings-name').textContent = data.workspace.name;
@@ -2050,6 +2319,7 @@ export function renderDashboardHtml(): string {
       el('settings-url').textContent = data.config.project.baseUrl;
       el('settings-profile').textContent = data.config.acceptance.profile;
       el('settings-model').textContent = data.config.acceptance.model;
+      el('settings-concurrency').textContent = data.config.acceptance.concurrency;
       el('settings-headed').textContent = data.config.acceptance.headed ? '显示浏览器窗口' : '无头模式';
 
       await Promise.all([loadSpecs(), loadRuns()]);
@@ -2069,6 +2339,7 @@ export function renderDashboardHtml(): string {
         el('edit-ws-url').value = conf.project.baseUrl || '';
         el('edit-ws-model').value = conf.acceptance.model || '';
         el('edit-ws-profile').value = conf.acceptance.profile || '';
+        el('edit-ws-concurrency').value = conf.acceptance.concurrency || 1;
         el('edit-ws-headed').checked = Boolean(conf.acceptance.headed);
       } catch (error) {
         toast('加载配置失败：' + error.message, true);
@@ -2092,10 +2363,15 @@ export function renderDashboardHtml(): string {
       const baseUrl = el('edit-ws-url').value.trim();
       const model = el('edit-ws-model').value.trim() || undefined;
       const profile = el('edit-ws-profile').value.trim() || undefined;
+      const concurrency = Number(el('edit-ws-concurrency').value);
       const headed = el('edit-ws-headed').checked;
 
       if (!name) { toast('项目名称不能为空', true); return; }
       if (!baseUrl) { toast('目标 URL 不能为空', true); return; }
+      if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) {
+        toast('并发用例数必须是 1 到 32 之间的整数', true);
+        return;
+      }
 
       try {
         new URL(baseUrl);
@@ -2117,6 +2393,7 @@ export function renderDashboardHtml(): string {
             ...currentData.config.acceptance,
             model: model || currentData.config.acceptance.model,
             profile: profile || currentData.config.acceptance.profile,
+            concurrency,
             headed,
           }
         };
@@ -2402,8 +2679,21 @@ export function renderDashboardHtml(): string {
     async function loadRuns() {
       const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/runs');
       state.runs = data.runs || [];
+      if (state.selectedRunId && !state.runs.some((run) => run.runId === state.selectedRunId)) {
+        state.selectedRunId = null;
+        clearRunDetail();
+      }
       renderRunsList();
       renderOverview();
+    }
+
+    function clearRunDetail() {
+      el('delete-run').disabled = true;
+      el('detail').innerHTML = '<div class="empty-state" style="padding:40px 10px">' +
+        '<div class="empty-icon" style="width:44px;height:44px;font-size:18px">🔍</div>' +
+        '<div style="font-size:14px;font-weight:600;color:var(--text)">选择运行记录</div>' +
+        '<p class="sub" style="font-size:12px">选择左侧一次运行记录查看验收矩阵与 proof。</p>' +
+        '</div>';
     }
 
     function renderRunsList() {
@@ -2461,6 +2751,7 @@ export function renderDashboardHtml(): string {
       const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/runs/' + encodeURIComponent(runId));
       const run = data.run;
       const detailContainer = el('detail');
+      el('delete-run').disabled = false;
 
       function renderCriteria(items) {
         return (items || []).map((item) => {
@@ -2497,7 +2788,7 @@ export function renderDashboardHtml(): string {
         resultAssertions: run.resultAssertions,
         specDigest: run.specDigest
       }];
-      const casesHtml = runCases.map((testCase) => {
+      const casesHtml = runCases.map((testCase, caseIndex) => {
         const caseHeader = run.schemaVersion === 2
           ? '<div class="row between" style="padding:10px 0 4px"><div><div style="font-size:14px;font-weight:700">' + esc(testCase.caseId + ' · ' + testCase.source.title) + '</div><div class="sub" style="font-size:12px;margin-top:3px">' + esc(testCase.summary) + '</div></div><span class="status-badge ' + esc(testCase.status) + '">' + esc(testCase.status) + '</span></div>'
           : '';
@@ -2522,8 +2813,29 @@ export function renderDashboardHtml(): string {
         const digest = testCase.specDigest
           ? '<div class="sub" style="font-family:var(--font-mono);font-size:11px">Spec: ' + esc(testCase.specDigest) + '</div>'
           : '';
-        return '<div class="stack" style="gap:8px">' + caseHeader + digest + structured + '</div>';
+        return '<article class="case-report' + (caseIndex ? ' hidden' : '') + '" data-case-index="' + caseIndex + '">' +
+          '<div class="stack" style="gap:8px">' + caseHeader + digest + structured + '</div>' +
+          '</article>';
       }).join('');
+
+      const casePickerHtml = runCases.length > 1
+        ? '<div class="stack" style="gap:10px">' +
+          '<div class="case-filter-bar">' +
+          '<input class="input" id="case-filter-search" type="search" placeholder="筛选用例 ID、标题或摘要" aria-label="筛选验收用例">' +
+          '<select class="select" id="case-filter-status" aria-label="按状态筛选验收用例">' +
+          '<option value="all">全部状态</option><option value="passed">通过</option><option value="failed">失败</option><option value="blocked">阻塞</option><option value="error">异常</option>' +
+          '</select>' +
+          '<span class="case-filter-count" id="case-filter-count"></span>' +
+          '</div>' +
+          '<div class="case-picker-list" id="case-picker-list">' +
+          runCases.map((testCase, caseIndex) =>
+            '<button class="case-picker-item' + (caseIndex ? '' : ' active') + '" type="button" data-case-index="' + caseIndex + '" data-case-status="' + esc(testCase.status) + '" data-case-search="' + esc([testCase.caseId, testCase.source.title, testCase.summary].join(' ').toLowerCase()) + '">' +
+            '<div class="case-picker-item-title"><span>' + esc(testCase.caseId + ' · ' + testCase.source.title) + '</span><span class="status-badge ' + esc(testCase.status) + '">' + esc(testCase.status) + '</span></div>' +
+            '<div class="case-picker-item-summary">' + esc(testCase.summary) + '</div>' +
+            '</button>'
+          ).join('') +
+          '</div></div>'
+        : '';
 
       const durationSec = typeof run.durationMs === 'number' ? (run.durationMs / 1000).toFixed(2) + 's' : '-';
       const formattedDate = run.startedAt ? new Date(run.startedAt).toLocaleString('zh-CN', { hour12: false }) : '-';
@@ -2546,9 +2858,62 @@ export function renderDashboardHtml(): string {
         (run.source?.content ? '<div class="stack"><div class="label">需求背景</div><pre style="font-family:var(--font-mono);font-size:12px;background:var(--panel-elevated);padding:12px;border-radius:var(--radius-md);border:1px solid var(--border);white-space:pre-wrap">' + esc(run.source.content) + '</pre></div>' : '') +
         (run.error ? '<div class="stack"><div class="label" style="color:var(--bad)">异常信息</div><pre style="font-family:var(--font-mono);font-size:12px;background:var(--bad-bg);color:var(--bad);padding:12px;border-radius:var(--radius-md);border:1px solid var(--bad-border);white-space:pre-wrap">' + esc(run.error) + '</pre></div>' : '') +
         '<div class="stack"><div class="label">' + (run.schemaVersion === 2 ? '用例与验收标准报告' : '验收标准矩阵 (AC Matrix)') + '</div>' +
+        casePickerHtml +
         casesHtml +
         '</div>' +
         '</div>';
+
+      if (runCases.length > 1) {
+        const pickerItems = Array.from(detailContainer.querySelectorAll('.case-picker-item'));
+        const caseReports = Array.from(detailContainer.querySelectorAll('.case-report'));
+        let activeCaseIndex = 0;
+
+        function applyCaseFilter() {
+          const query = el('case-filter-search').value.trim().toLowerCase();
+          const status = el('case-filter-status').value;
+          const matches = pickerItems.filter((item) => {
+            const matchesQuery = !query || item.dataset.caseSearch.includes(query);
+            const matchesStatus = status === 'all' || item.dataset.caseStatus === status;
+            item.classList.toggle('hidden', !matchesQuery || !matchesStatus);
+            return matchesQuery && matchesStatus;
+          });
+
+          if (!matches.some((item) => Number(item.dataset.caseIndex) === activeCaseIndex)) {
+            activeCaseIndex = matches.length ? Number(matches[0].dataset.caseIndex) : -1;
+          }
+          pickerItems.forEach((item) => item.classList.toggle('active', Number(item.dataset.caseIndex) === activeCaseIndex));
+          caseReports.forEach((report) => report.classList.toggle('hidden', Number(report.dataset.caseIndex) !== activeCaseIndex));
+          el('case-filter-count').textContent = matches.length + ' / ' + runCases.length + ' 个用例';
+        }
+
+        pickerItems.forEach((item) => {
+          item.onclick = () => {
+            activeCaseIndex = Number(item.dataset.caseIndex);
+            applyCaseFilter();
+          };
+        });
+        el('case-filter-search').oninput = applyCaseFilter;
+        el('case-filter-status').onchange = applyCaseFilter;
+        applyCaseFilter();
+      }
+    }
+
+    async function deleteRun() {
+      const runId = state.selectedRunId;
+      if (!runId || !confirm('确认永久删除运行报告「' + runId + '」？相关报告文件和截图证据也会被删除。')) return;
+      const button = el('delete-run');
+      button.disabled = true;
+      try {
+        await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/runs/' + encodeURIComponent(runId), { method: 'DELETE' });
+        state.selectedRunId = null;
+        clearRunDetail();
+        navigate('reports');
+        await loadRuns();
+        toast('运行报告已删除');
+      } catch (error) {
+        button.disabled = false;
+        toast('删除失败：' + error.message, true);
+      }
     }
 
     function openLightbox(src, caption) {
@@ -2568,6 +2933,11 @@ export function renderDashboardHtml(): string {
 
     async function runAcceptance() {
       if (!await saveSpec()) return;
+      const concurrency = Number(el('run-concurrency').value);
+      if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) {
+        toast('并发用例数必须是 1 到 32 之间的整数', true);
+        return;
+      }
       const output = el('run-output');
       const workspaceId = state.selected;
       setRunControlsRunning(state.specs.length);
@@ -2581,6 +2951,7 @@ export function renderDashboardHtml(): string {
             url: el('run-url').value,
             profile: el('run-profile').value,
             model: el('run-model').value,
+            concurrency,
             headed: el('run-headed').checked,
             fresh: el('run-fresh').checked
           })
@@ -2739,7 +3110,12 @@ export function renderDashboardHtml(): string {
           if (event.type === 'run-started') append('验收任务已启动。');
           if (event.type === 'case-started') {
             append('[' + (event.index + 1) + '/' + event.total + '] 正在执行 ' + event.caseId + ' · ' + event.title);
-            setLiveViewStatus('正在连接 ' + event.caseId + ' · ' + event.title, 'blocked', '连接中');
+            if (event.concurrency > 1) {
+              disconnectLiveViewer();
+              setLiveViewStatus('并发执行时不提供单一 Session 的实时浏览器画面。', 'blocked', '并发模式');
+            } else {
+              setLiveViewStatus('正在连接 ' + event.caseId + ' · ' + event.title, 'blocked', '连接中');
+            }
           }
           if (event.type === 'viewer-ready') {
             showLiveViewer(event.viewerUrl, event.caseId + ' · ' + event.title);
@@ -2802,6 +3178,7 @@ export function renderDashboardHtml(): string {
     el('save-spec').onclick = saveSpec;
     el('new-spec').onclick = createSpec;
     el('delete-spec').onclick = deleteSpec;
+    el('delete-run').onclick = deleteRun;
     el('upload-resources').onclick = () => el('resource-files').click();
     el('resource-files').onchange = (event) => uploadBundleResources(Array.from(event.target.files || []));
     el('spec-file').onchange = async (event) => {
@@ -2812,6 +3189,7 @@ export function renderDashboardHtml(): string {
     el('refresh-runs-top').onclick = loadRuns;
     el('manual-login').onclick = openManualLogin;
     el('run-acceptance').onclick = runAcceptance;
+    el('run-doctor').onclick = runDoctorCheck;
     el('live-view-reload').onclick = () => {
       if (!state.liveViewerUrl) return;
       const frame = el('live-view-frame');

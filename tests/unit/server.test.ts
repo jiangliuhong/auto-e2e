@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AcceptanceHistoryStore } from '../../src/acceptance/history-store.js';
+import type { AcceptanceRun } from '../../src/domain/acceptance-run.js';
 import { createAutoE2EServer, type AutoE2EServerInstance } from '../../src/server/server.js';
 
 describe('acceptance report server', () => {
@@ -40,6 +41,7 @@ describe('acceptance report server', () => {
     expect(html).toContain('切换为亮色');
     expect(html).toContain('.auto-e2e/specs/');
     expect(html).toContain('运行全部用例');
+    expect(html).toContain('id="run-concurrency"');
     expect(html).toContain('id="header-ws-path"');
     expect(html).toContain('id="header-ws-url"');
     expect(html).toContain('id="header-ws-url-link"');
@@ -47,21 +49,94 @@ describe('acceptance report server', () => {
     expect(html).toContain('data-nav-page="specs"');
     expect(html).toContain('data-nav-page="run"');
     expect(html).toContain('data-nav-page="reports"');
+    expect(html).toContain('data-nav-page="doctor"');
     expect(html).toContain('data-nav-page="settings"');
     expect(html).toContain('data-page-view="overview"');
     expect(html).toContain('id="manual-login"');
+    expect(html).toContain('id="run-doctor"');
+    expect(html).toContain('/doctor');
     expect(html).toContain('/manual-login');
     expect(html).toContain('id="live-view-frame"');
+    expect(html).toContain('id="delete-run"');
     expect(html).toContain('sandbox="allow-scripts allow-forms allow-pointer-lock allow-downloads"');
     expect(html).not.toContain('sandbox="allow-same-origin');
     expect(html).toContain('/run-jobs');
     expect(html).not.toContain("window.open('about:blank', '_blank')");
     expect(html).toContain("history.replaceState(null, '', '#/overview')");
-    expect(html).toContain('body[data-page="reports"] main { overflow: hidden; }');
+    expect(html).toContain('body[data-page="reports"] main {');
+    expect(html).toContain('max-width: none;');
+    expect(html).toContain('padding: 12px 16px 16px;');
+    expect(html).toContain('.page-view[data-page-view="reports"] .page-heading > div');
     expect(html).toContain('#detail-card #detail');
+    expect(html).toContain('grid-template-columns: minmax(220px, 280px) minmax(0, 1fr)');
+    expect(html).toContain('id="case-filter-search"');
+    expect(html).toContain('id="case-filter-status"');
+    expect(html).toContain('class="case-picker-item');
     expect(html).toContain('document.body.dataset.page = page');
     expect(html).not.toContain('class="workspace-banner"');
     expect(() => new Function(html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '')).not.toThrow();
+  });
+
+  it('从 Web UI 运行指定范围的环境诊断', async () => {
+    await instance.stop();
+    const fakeCli = path.join(root, 'fake-betterwright-doctor');
+    await fs.writeFile(fakeCli, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] !== 'doctor' || args[1] !== '--json') process.exit(1);
+process.stdout.write(JSON.stringify({
+  ready: true,
+  browser: 'chromium',
+  browser_selection_reason: 'available',
+  playwright_version: '1.61.1',
+  checks: [{ group: 'Built-in agent', label: 'Model backends', status: 'ok', detail: 'codex' }]
+}));
+`, 'utf8');
+    await fs.chmod(fakeCli, 0o700);
+    instance = createAutoE2EServer({
+      projectRoot: root,
+      registryPath: path.join(root, 'workspaces.json'),
+      betterwrightBinary: fakeCli,
+      port: 0,
+    });
+    await instance.start();
+
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const response = await fetch(`${instance.url}/api/workspaces/${workspaceId}/doctor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: 'tool' }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.report).toEqual(expect.objectContaining({
+      ok: true,
+      scope: 'tool',
+      groups: { tool: expect.objectContaining({ status: 'pass' }) },
+    }));
+    expect(body.report.groups.project).toBeUndefined();
+
+    await fs.writeFile(path.join(root, '.auto-e2e.yaml'), 'project: [invalid', 'utf8');
+    const projectResponse = await fetch(`${instance.url}/api/workspaces/${workspaceId}/doctor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: 'project' }),
+    });
+    expect(projectResponse.status).toBe(200);
+    const projectBody = await projectResponse.json();
+    expect(projectBody.ok).toBe(false);
+    expect(projectBody.report.groups.project.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'project.config', status: 'fail' }),
+    ]));
+
+    const invalid = await fetch(`${instance.url}/api/workspaces/${workspaceId}/doctor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: 'invalid' }),
+    });
+    expect(invalid.status).toBe(400);
+    expect((await invalid.json()).error).toContain('scope');
   });
 
   it('从 serve 页面为当前 Profile 打开手动登录会话', async () => {
@@ -277,22 +352,44 @@ if (args[0] === 'view') {
     await expect(fs.readFile(path.join(root, 'exec-cancelled'), 'utf8')).resolves.toBe('yes');
   });
 
-  it('返回历史与逐条验收详情', async () => {
+  it('返回历史与逐条验收详情，并允许删除报告及其产物', async () => {
     const runId = '20260826T120000000Z-a1b2c3d4';
-    await new AcceptanceHistoryStore(root).save({
+    const run = {
       schemaVersion: 1, runId, project: 'demo',
       source: { type: 'task-spec', reference: '.auto-e2e/specs/query.spec.json', title: '查询', content: '可以查询' },
       commit: null, targetUrl: 'http://127.0.0.1:3000', profile: 'test', model: 'test', session: 'test',
       status: 'passed', startedAt: '2026-08-26T12:00:00.000Z', finishedAt: '2026-08-26T12:00:01.000Z', durationMs: 1000,
       summary: '通过', criteria: [{ id: 'AC-01', description: '显示结果', status: 'passed', actual: '已显示', proof: null }],
       steps: 1, proof: null, error: null,
-    });
+    } satisfies AcceptanceRun;
+    const store = new AcceptanceHistoryStore(root);
+    await store.save(run);
+    const reportDirectory = path.join(root, '.auto-e2e', 'reports', 'acceptance', 'runs', runId);
+    const latestDirectory = path.join(root, '.auto-e2e', 'reports', 'acceptance', 'latest');
+    const artifactDirectory = path.join(root, '.auto-e2e', 'artifacts', runId);
+    await fs.mkdir(reportDirectory, { recursive: true });
+    await fs.mkdir(latestDirectory, { recursive: true });
+    await fs.mkdir(artifactDirectory, { recursive: true });
+    await fs.writeFile(path.join(reportDirectory, 'result.json'), JSON.stringify(run));
+    await fs.writeFile(path.join(latestDirectory, 'result.json'), JSON.stringify(run));
+    await fs.writeFile(path.join(artifactDirectory, 'proof.png'), 'proof');
     const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
     const workspaceId = workspaces.workspaces[0].id;
     const list = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs`).then((response) => response.json());
     const show = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}`).then((response) => response.json());
     expect(list.runs).toHaveLength(1);
     expect(show.run.criteria[0].status).toBe('passed');
+
+    const deleted = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}`, { method: 'DELETE' });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ ok: true, runId });
+    expect(await store.get(runId)).toBeUndefined();
+    await expect(fs.access(reportDirectory)).rejects.toThrow();
+    await expect(fs.access(artifactDirectory)).rejects.toThrow();
+    await expect(fs.access(latestDirectory)).rejects.toThrow();
+    expect((await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}`, { method: 'DELETE' })).status).toBe(404);
+
+    await expect(store.save(run)).resolves.toBeUndefined();
   });
 
   it('通过工作区接口读取并更新任务规格', async () => {

@@ -14,6 +14,7 @@ describe('acceptance config', () => {
     const config = await loadConfig({ projectRoot: root });
     expect(config.project.name).toBe('my-web');
     expect(config.acceptance.databasePath).toBe('.auto-e2e/history.sqlite');
+    expect(config.acceptance.concurrency).toBe(1);
     expect(config.acceptance.forbiddenActions).toContain('删除数据');
   });
 
@@ -24,10 +25,23 @@ describe('acceptance config', () => {
   baseUrl: https://test.example.com
 acceptance:
   model: test-model
+  concurrency: 3
 `, 'utf8');
     vi.stubEnv('AUTO_E2E_MODEL', 'override-model');
     const config = await loadConfig({ projectRoot: root });
     expect(config.project.baseUrl).toBe('https://test.example.com');
     expect(config.acceptance.model).toBe('override-model');
+    expect(config.acceptance.concurrency).toBe(3);
+  });
+
+  it('拒绝超出范围的并发数', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'auto-e2e-config-'));
+    await fs.writeFile(path.join(root, '.auto-e2e.yaml'), `project:
+  name: configured
+  baseUrl: https://test.example.com
+acceptance:
+  concurrency: 0
+`, 'utf8');
+    await expect(loadConfig({ projectRoot: root })).rejects.toThrow('acceptance.concurrency');
   });
 });

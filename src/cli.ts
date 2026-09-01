@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { registerDoctor } from './commands/doctor.js';
 import { registerHistory } from './commands/history.js';
+import { registerInit } from './commands/init.js';
 import { registerRun } from './commands/run.js';
 import { registerServe } from './commands/server.js';
 import { registerSkill } from './commands/skill.js';
@@ -20,6 +21,7 @@ program
   .action(() => program.help());
 
 registerDoctor(program);
+registerInit(program);
 registerRun(program);
 registerHistory(program);
 registerServe(program);

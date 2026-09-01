@@ -391,7 +391,7 @@ printf '%s' '{"ok":true,"answer":"not-json","steps":1,"proof":null}'
     expect((await new AcceptanceHistoryStore(root).get(run.runId))?.status).toBe('blocked');
   });
 
-  it('逐个运行多用例套件并保存汇总报告', async () => {
+  it('按并发上限运行多用例套件并按原顺序保存汇总报告', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-suite-'));
     const specDirectory = path.join(root, '.auto-e2e', 'specs');
     await mkdir(specDirectory, { recursive: true });
@@ -411,15 +411,28 @@ printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"通过\\",\\"criteria\\":[{\
 `, 'utf8');
     await chmod(fakeCli, 0o700);
 
+    let activeCases = 0;
+    let maxActiveCases = 0;
     const run = await executeAcceptance({
       projectRoot: root,
       config: defaultConfig('demo'),
       betterwrightBinary: fakeCli,
       session: 'suite-session',
+      concurrency: 2,
+      lifecycle: {
+        onCaseStarting: () => {
+          activeCases += 1;
+          maxActiveCases = Math.max(maxActiveCases, activeCases);
+        },
+        onCaseCompleted: () => {
+          activeCases -= 1;
+        },
+      },
     });
     expect(run.schemaVersion).toBe(2);
     if (run.schemaVersion !== 2) throw new Error('expected suite run');
     expect(run.status).toBe('passed');
+    expect(maxActiveCases).toBe(2);
     expect(run.cases.map((item) => item.caseId)).toEqual(['SEARCH-02', 'SEARCH-01']);
     expect(run.cases.map((item) => item.session)).toEqual([
       'suite-session-01-search-02',

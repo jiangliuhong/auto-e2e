@@ -1,4 +1,4 @@
-import type { Command } from 'commander';
+import { InvalidArgumentError, type Command } from 'commander';
 import { executeAcceptance } from '../acceptance/acceptance-runner.js';
 import { loadConfig } from '../config/config-loader.js';
 import { ExitCode } from '../runtime/exit-codes.js';
@@ -14,6 +14,7 @@ export interface AcceptanceRunOptions extends RunOptions {
   session?: string;
   headed?: boolean;
   fresh?: boolean;
+  concurrency?: number;
 }
 
 export async function runAcceptanceCommand(opts: AcceptanceRunOptions): Promise<number> {
@@ -29,6 +30,7 @@ export async function runAcceptanceCommand(opts: AcceptanceRunOptions): Promise<
       session: opts.session,
       headed: opts.headed,
       fresh: opts.fresh,
+      concurrency: opts.concurrency,
       logger: ctx.logger,
     });
     const exitCode = result.status === 'passed'
@@ -58,9 +60,18 @@ export function registerRun(program: Command): void {
     .option('--session <name>', 'BetterWright 会话名')
     .option('--headed', '显示浏览器窗口')
     .option('--fresh', '使用全新 BetterWright 会话')
+    .option('--concurrency <count>', '并发执行的用例数（默认读取 acceptance.concurrency）', parseConcurrency)
     .action(async (opts) => {
       process.exit(await runAcceptanceCommand(
         mergeGlobalOpts(opts, program) as AcceptanceRunOptions,
       ));
     });
+}
+
+function parseConcurrency(value: string): number {
+  const concurrency = Number(value);
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) {
+    throw new InvalidArgumentError('并发数必须是 1 到 32 之间的整数');
+  }
+  return concurrency;
 }

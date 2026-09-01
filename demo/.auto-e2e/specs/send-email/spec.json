@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 2,
+  "taskId": "MAIL163-SEND-EMAIL-01",
+  "title": "163 邮箱登录后发送邮件",
+  "requirement": "使用已有登录状态进入 163 邮箱，向 jerome950523@gmail.com 发送一封主题为“test auto-e2e”、正文为“我在测试 auto-e2e”的邮件。",
+  "tags": [
+    "mail163",
+    "send-email"
+  ],
+  "risk": "high",
+  "steps": [
+    {
+      "id": "STEP-01",
+      "instruction": "使用已有登录状态进入 163 邮箱并开始写信",
+      "expected": "写信页面正常显示，可以编辑新邮件"
+    },
+    {
+      "id": "STEP-02",
+      "instruction": "将收件人填写为 jerome950523@gmail.com",
+      "expected": "收件人栏显示 jerome950523@gmail.com"
+    },
+    {
+      "id": "STEP-03",
+      "instruction": "将邮件主题填写为“test auto-e2e”",
+      "expected": "主题栏显示 test auto-e2e"
+    },
+    {
+      "id": "STEP-04",
+      "instruction": "将邮件正文填写为“我在测试 auto-e2e”",
+      "expected": "正文编辑区显示我在测试 auto-e2e"
+    },
+    {
+      "id": "STEP-05",
+      "instruction": "发送邮件并查看发送结果",
+      "expected": "页面明确提示邮件发送成功"
+    }
+  ],
+  "results": [
+    {
+      "id": "RESULT-01",
+      "name": "邮件收件人",
+      "actual": "发送前写信页面显示的收件人",
+      "expected": "jerome950523@gmail.com",
+      "match": "equals",
+      "options": {
+        "trim": true
+      }
+    },
+    {
+      "id": "RESULT-02",
+      "name": "邮件主题",
+      "actual": "发送前写信页面显示的邮件主题",
+      "expected": "test auto-e2e",
+      "match": "equals",
+      "options": {
+        "trim": true
+      }
+    },
+    {
+      "id": "RESULT-03",
+      "name": "邮件正文",
+      "actual": "发送前写信页面显示的邮件正文",
+      "expected": "我在测试 auto-e2e",
+      "match": "equals",
+      "options": {
+        "trim": true
+      }
+    },
+    {
+      "id": "RESULT-04",
+      "name": "邮件发送状态",
+      "actual": "执行发送操作后页面显示的发送结果",
+      "expected": "发送成功",
+      "match": "contains"
+    }
+  ]
+}

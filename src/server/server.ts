@@ -25,6 +25,7 @@ import {
   validateTaskSpec,
   type TaskSpec,
 } from '../domain/task-spec.js';
+import { runDoctor, type DoctorScope } from '../doctor/doctor.js';
 import { AutoE2EError, ExitCode } from '../runtime/exit-codes.js';
 import { Logger } from '../runtime/logger.js';
 import { WorkspaceRegistry } from '../workspace/workspace-registry.js';
@@ -146,6 +147,18 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           return;
         }
         const workspace = await registry.get(workspaceId);
+        if (method === 'POST' && action === 'doctor') {
+          const body = await parseJsonBody(request);
+          const scope = doctorScopeValue(body.scope);
+          const report = await runDoctor({
+            projectRoot: workspace.path,
+            scope,
+            betterwrightBinary: options.betterwrightBinary,
+            logger,
+          });
+          sendJson(response, 200, { ok: report.ok, report });
+          return;
+        }
         const config = await loadConfig({ projectRoot: workspace.path });
         const store = new AcceptanceHistoryStore(workspace.path, config.acceptance.databasePath);
 
@@ -345,6 +358,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
             model: stringValue(body.model),
             headed: body.headed === true,
             fresh: body.fresh === true,
+            concurrency: numberValue(body.concurrency),
             logger,
             betterwrightBinary: options.betterwrightBinary,
           });
@@ -352,11 +366,25 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           return;
         }
         const runMatch = action.match(/^runs\/([^/]+)$/);
-        if (method === 'GET' && runMatch?.[1]) {
-          const run = await store.get(decodeURIComponent(runMatch[1]));
-          if (!run) sendJson(response, 404, { ok: false, error: '未找到运行记录' });
-          else sendJson(response, 200, { ok: true, run });
-          return;
+        if (runMatch?.[1]) {
+          const runId = decodeURIComponent(runMatch[1]);
+          if (method === 'GET') {
+            const run = await store.get(runId);
+            if (!run) sendJson(response, 404, { ok: false, error: '未找到运行记录' });
+            else sendJson(response, 200, { ok: true, run });
+            return;
+          }
+          if (method === 'DELETE') {
+            const run = await store.get(runId);
+            if (!run) {
+              sendJson(response, 404, { ok: false, error: '未找到运行记录' });
+              return;
+            }
+            await store.delete(runId);
+            await deleteRunFiles(workspace.path, config, runId, store);
+            sendJson(response, 200, { ok: true, runId });
+            return;
+          }
         }
         const artifactMatch = action.match(/^artifacts\/(.+)$/);
         if (method === 'GET' && artifactMatch?.[1]) {
@@ -465,6 +493,7 @@ async function runAcceptanceJob(input: {
       model: stringValue(input.body.model),
       headed: input.body.headed === true,
       fresh: input.body.fresh === true,
+      concurrency: numberValue(input.body.concurrency),
       logger: input.logger,
       betterwrightBinary: input.betterwrightBinary,
       signal: job.controller.signal,
@@ -476,6 +505,7 @@ async function runAcceptanceJob(input: {
             title: context.title,
             index: context.index,
             total: context.total,
+            concurrency: context.concurrency,
           });
           await input.manualLoginSessions.get(job.workspaceId)?.close();
           input.manualLoginSessions.delete(job.workspaceId);
@@ -486,6 +516,7 @@ async function runAcceptanceJob(input: {
             input.liveViewProxyTargets,
             input.workspaceLiveViewHandles,
           );
+          if (context.concurrency > 1) return;
           try {
             const viewer = await new BetterWrightCli({
               binary: input.betterwrightBinary,
@@ -969,6 +1000,35 @@ async function readBinaryBody(request: http.IncomingMessage, limit: number): Pro
   });
 }
 
+async function deleteRunFiles(
+  projectRoot: string,
+  config: AutoE2EConfig,
+  runId: string,
+  store: AcceptanceHistoryStore,
+): Promise<void> {
+  const reportRoot = path.resolve(projectRoot, config.report.outputDirectory, 'acceptance');
+  const artifactRoot = path.resolve(projectRoot, config.report.artifactDirectory);
+  await Promise.all([
+    fs.rm(path.join(reportRoot, 'runs', runId), { recursive: true, force: true }),
+    fs.rm(path.join(artifactRoot, runId), { recursive: true, force: true }),
+  ]);
+
+  const latestDirectory = path.join(reportRoot, 'latest');
+  const [latest] = await store.list(1);
+  if (!latest) {
+    await fs.rm(latestDirectory, { recursive: true, force: true });
+    return;
+  }
+  const latestRun = await store.get(latest.runId);
+  if (!latestRun) return;
+  await fs.mkdir(latestDirectory, { recursive: true });
+  await fs.writeFile(
+    path.join(latestDirectory, 'result.json'),
+    `${JSON.stringify(latestRun, null, 2)}\n`,
+    'utf8',
+  );
+}
+
 async function serveArtifact(
   response: http.ServerResponse,
   projectRoot: string,
@@ -996,4 +1056,14 @@ async function serveArtifact(
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+function doctorScopeValue(value: unknown): DoctorScope {
+  if (value === undefined || value === null || value === '') return 'all';
+  if (value === 'all' || value === 'tool' || value === 'project') return value;
+  throw new AutoE2EError(ExitCode.Blocked, 'doctor scope 必须是 all、tool 或 project');
 }

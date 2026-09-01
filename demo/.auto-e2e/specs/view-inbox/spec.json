@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "taskId": "MAIL163-VIEW-INBOX-01",
+  "title": "查看收件箱中的邮件",
+  "requirement": "使用已有登录状态进入 163 邮箱，切换到收件箱，并确认能够正常看到收到的邮件。",
+  "tags": [
+    "mail163",
+    "inbox"
+  ],
+  "risk": "low",
+  "steps": [
+    {
+      "id": "STEP-01",
+      "instruction": "使用已有登录状态进入 163 邮箱",
+      "expected": "邮箱页面正常显示，可以查看邮件文件夹"
+    },
+    {
+      "id": "STEP-02",
+      "instruction": "切换到收件箱并查看邮件列表",
+      "expected": "收件箱正常打开，邮件列表中显示收到的邮件"
+    }
+  ],
+  "results": [
+    {
+      "id": "RESULT-01",
+      "name": "当前邮件文件夹",
+      "actual": "切换后页面显示的当前邮件文件夹名称",
+      "expected": "收件箱",
+      "match": "equals",
+      "options": {
+        "trim": true
+      }
+    },
+    {
+      "id": "RESULT-02",
+      "name": "收到的邮件可见",
+      "actual": "收件箱邮件列表中是否至少显示一封收到的邮件",
+      "expected": true,
+      "match": "equals"
+    },
+    {
+      "id": "RESULT-03",
+      "name": "邮件基本信息可见",
+      "actual": "可见的收件箱邮件是否显示发件人和主题",
+      "expected": true,
+      "match": "equals"
+    }
+  ]
+}

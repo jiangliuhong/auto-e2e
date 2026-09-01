@@ -23,6 +23,20 @@ auto-e2e 的唯一工作流是：读取原生 Spec Bundle → 按业务步骤调
 
 ## 命令
 
+### init
+
+```bash
+auto-e2e init
+auto-e2e init --login grok
+auto-e2e init --skip-auth
+```
+
+`init` 直接调用 auto-e2e 包内固定版本的 BetterWright，下载并验证托管浏览器，
+且不会安装 BetterWright 的全局 Agent Skill 或 MCP 配置。未检测到模型后端时默认发起
+Codex OAuth 登录；已有 API Key、Codex/Grok 登录或本地模型时不会重复登录。
+`--non-interactive` 模式不会隐式发起 OAuth，除非显式传入 `--login codex` 或
+`--login grok`。
+
 ### doctor
 
 `auto-e2e doctor` 默认按两组检查验收运行条件：

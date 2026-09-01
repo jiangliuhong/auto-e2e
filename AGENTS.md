@@ -33,7 +33,7 @@ src/
 
 ## CLI 契约
 
-公共命令只有：`doctor`、`run`、`list`、`show`、`serve`、`skill`。`skill install/status` 只操作目标项目的 `.codex/skills/auto-e2e-acceptance`，不得写入用户全局 Skill 目录。
+公共命令只有：`init`、`doctor`、`run`、`list`、`show`、`serve`、`skill`。`init` 只通过随包 BetterWright 初始化浏览器和模型后端，不安装全局 Agent Skill 或 MCP 配置；`skill install/status` 只操作目标项目的 `.codex/skills/auto-e2e-acceptance`，不得写入用户全局 Skill 目录。
 
 退出码：
 

@@ -274,8 +274,21 @@ export class AcceptanceHistoryStore {
     }
   }
 
+  async delete(runId: string): Promise<boolean> {
+    await this.initialize();
+    const db = this.open();
+    try {
+      const result = db.prepare('DELETE FROM runs WHERE run_id = ?').run(runId);
+      return result.changes > 0;
+    } finally {
+      db.close();
+    }
+  }
+
   private open(): DatabaseSyncType {
     const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
-    return new DatabaseSync(this.databasePath);
+    const db = new DatabaseSync(this.databasePath);
+    db.exec('PRAGMA foreign_keys = ON');
+    return db;
   }
 }

@@ -1,11 +1,11 @@
 project:
-  name: baidu-search-demo
-  baseUrl: https://www.baidu.com
+  name: 163-mail-demo
+  baseUrl: https://mail.163.com/
 
 acceptance:
   model: gpt-5.6-sol
-  profile: baidu-search-demo
-  headed: false
+  profile: 163-mail-demo
+  headed: true
 
 report:
   outputDirectory: .auto-e2e/reports

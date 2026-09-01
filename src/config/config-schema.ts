@@ -10,6 +10,7 @@ export const AcceptanceConfigSchema = z.object({
   model: z.string().min(1).default('gpt-5.6-sol'),
   profile: z.string().regex(/^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._-]*$/).default('auto-e2e'),
   headed: z.boolean().default(false),
+  concurrency: z.number().int().min(1).max(32).default(1),
   forbiddenActions: z.array(z.string().min(1)).default([
     '删除数据',
     '发布或部署',
