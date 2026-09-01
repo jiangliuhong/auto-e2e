@@ -2,10 +2,19 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import {
+  BetterWrightCli,
+  type BetterWrightManualLoginSession,
+} from '../acceptance/betterwright-cli.js';
 import { executeAcceptance } from '../acceptance/acceptance-runner.js';
 import { AcceptanceHistoryStore } from '../acceptance/history-store.js';
+import { validateTargetUrl } from '../acceptance/preflight.js';
 import { CONFIG_FILENAME, loadConfig } from '../config/config-loader.js';
-import { AutoE2EConfigSchema, type AutoE2EConfig } from '../config/config-schema.js';
+import {
+  AcceptanceConfigSchema,
+  AutoE2EConfigSchema,
+  type AutoE2EConfig,
+} from '../config/config-schema.js';
 import {
   ACCEPTANCE_SPEC_DIRECTORY,
   isAcceptanceSpecFileName,
@@ -24,6 +33,7 @@ export interface AutoE2EServerOptions {
   port?: number;
   host?: string;
   logger?: Logger;
+  betterwrightBinary?: string;
 }
 
 export interface AutoE2EServerInstance {
@@ -40,6 +50,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
   const requestedPort = options.port ?? 4317;
   const logger = options.logger ?? new Logger({ level: 'info' });
   const registry = new WorkspaceRegistry(options.registryPath);
+  const manualLoginSessions = new Map<string, BetterWrightManualLoginSession>();
   let actualPort = requestedPort;
 
   const server = http.createServer(async (request, response) => {
@@ -74,6 +85,8 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
         const workspaceId = decodeURIComponent(workspaceMatch[1]);
         const action = workspaceMatch[2] ?? '';
         if (method === 'DELETE' && !action) {
+          await manualLoginSessions.get(workspaceId)?.close();
+          manualLoginSessions.delete(workspaceId);
           sendJson(response, 200, { ok: await registry.remove(workspaceId) });
           return;
         }
@@ -153,6 +166,42 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           sendJson(response, 200, { ok: true, runs: await store.list(limit) });
           return;
         }
+        if (method === 'POST' && action === 'manual-login') {
+          const body = await parseJsonBody(request);
+          const targetUrl = validateTargetUrl(stringValue(body.url) ?? config.project.baseUrl);
+          const profileResult = AcceptanceConfigSchema.shape.profile.safeParse(
+            stringValue(body.profile) ?? config.acceptance.profile,
+          );
+          if (!profileResult.success) {
+            throw new AutoE2EError(
+              ExitCode.Blocked,
+              `Profile 无效：${profileResult.error.issues.map((issue) => issue.message).join('; ')}`,
+            );
+          }
+          const previous = manualLoginSessions.get(workspaceId);
+          if (previous) await previous.close();
+          manualLoginSessions.delete(workspaceId);
+          const manualLogin = await new BetterWrightCli({
+            binary: options.betterwrightBinary,
+            cwd: workspace.path,
+            logger,
+          }).startManualLogin({
+            targetUrl,
+            profile: profileResult.data,
+            session: manualLoginSessionName(config.project.name),
+            headed: typeof body.headed === 'boolean'
+              ? body.headed
+              : config.acceptance.headed,
+          });
+          manualLoginSessions.set(workspaceId, manualLogin);
+          sendJson(response, 200, {
+            ok: true,
+            viewerUrl: manualLogin.viewerUrl,
+            targetUrl,
+            profile: profileResult.data,
+          });
+          return;
+        }
         if (method === 'POST' && action === 'runs') {
           const body = await parseJsonBody(request);
           const run = await executeAcceptance({
@@ -165,6 +214,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
             headed: body.headed === true,
             fresh: body.fresh === true,
             logger,
+            betterwrightBinary: options.betterwrightBinary,
           });
           sendJson(response, 200, { ok: run.status === 'passed', run });
           return;
@@ -219,12 +269,19 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
       logger.info(`验收报告服务已启动：http://${host}:${actualPort}`);
     },
     async stop() {
+      await Promise.all([...manualLoginSessions.values()].map((session) => session.close()));
+      manualLoginSessions.clear();
       if (!server.listening) return;
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
     },
   };
+}
+
+function manualLoginSessionName(project: string): string {
+  const safeProject = project.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return `${safeProject || 'auto-e2e'}-manual-login`;
 }
 
 interface TaskSpecListItem {

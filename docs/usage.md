@@ -78,6 +78,7 @@ auto-e2e serve --workspace /path/to/project --host 127.0.0.1 --port 4317
 - `PUT /api/workspaces/:workspaceId/task-specs/:fileName/resources/:relativePath`
 - `DELETE /api/workspaces/:workspaceId/task-specs/:fileName/resources/:relativePath`
 - `GET /api/workspaces/:workspaceId/runs`
+- `POST /api/workspaces/:workspaceId/manual-login`
 - `GET /api/workspaces/:workspaceId/runs/:runId`
 - `POST /api/workspaces/:workspaceId/runs`
 - `GET /api/workspaces/:workspaceId/artifacts/:relativePath`
@@ -101,6 +102,10 @@ auto-e2e --project-root /path/to/project skill install
 Skill 只安装到目标项目的 `.codex/skills/auto-e2e-acceptance`。安装后的 Skill 能根据需求生成 `.auto-e2e.yaml` 和自包含 Spec Bundle，并通过 CLI 或 Web UI 执行相同验收链路。
 
 Web 页面展示运行历史、需求正文、Commit、套件用例汇总、逐用例验收矩阵与 proof。
+
+### 人工登录
+
+“执行验收”页面的“打开手动登录”按钮使用当前目标 URL、Profile 和浏览器模式启动 BetterWright Live View。用户在该真实浏览器会话中完成登录、扫码、MFA 或 Passkey 后，Cookie 等登录状态保存在 `$BETTERWRIGHT_HOME/browser/profiles/<profile>`，后续运行无需再次传递凭据。Live View URL 包含临时控制令牌，只通过本次 API 响应交给页面，不保存到工作区配置、SQLite 历史或报告。
 
 ## 机器调用
 

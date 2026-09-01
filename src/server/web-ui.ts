@@ -74,6 +74,7 @@ export function renderDashboardHtml(): string {
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
     body {
       background: var(--bg);
       color: var(--text);
@@ -122,6 +123,7 @@ export function renderDashboardHtml(): string {
       top: 0;
       z-index: 20;
       backdrop-filter: blur(8px);
+      flex-shrink: 0;
     }
     .header-left {
       display: flex;
@@ -305,19 +307,177 @@ export function renderDashboardHtml(): string {
     .layout {
       flex: 1;
       display: flex;
-      flex-direction: column;
+      align-items: stretch;
       width: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 224px;
+      flex-shrink: 0;
+      padding: 22px 14px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .sidebar-label {
+      padding: 0 10px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 11px;
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 550;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+    .nav-item:hover { background: var(--hover); color: var(--text); }
+    .nav-item.active {
+      color: var(--accent);
+      background: var(--accent-light);
+      box-shadow: inset 0 0 0 1px var(--accent-border);
+    }
+    .nav-item svg { flex-shrink: 0; }
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px 10px 0;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.55;
     }
     main {
       padding: 24px 32px;
-      max-width: 1400px;
+      max-width: 1480px;
       width: 100%;
       margin: 0 auto;
       display: flex;
       flex-direction: column;
       gap: 20px;
       flex: 1;
+      min-width: 0;
+      min-height: 0;
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
+
+    #workspace-view { flex: 1; min-height: 0; }
+    body[data-page="reports"] main { overflow: hidden; }
+    .page-view[data-page-view="reports"] {
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .page-view[data-page-view="reports"] .page-heading { flex-shrink: 0; }
+    .page-view[data-page-view="reports"] .grid-1-2 {
+      flex: 1;
+      min-height: 0;
+    }
+    .page-view[data-page-view="reports"] .card {
+      min-height: 0;
+      overflow: hidden;
+    }
+    .page-view[data-page-view="reports"] .runs-list {
+      flex: 1;
+      max-height: none;
+      min-height: 0;
+      overscroll-behavior: contain;
+    }
+    #detail-card #detail {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: 4px;
+    }
+
+    .page-view { animation: page-enter 0.18s ease; }
+    @keyframes page-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+    .page-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .page-heading h2 { font-size: 20px; line-height: 1.25; letter-spacing: -0.025em; }
+    .page-heading p { color: var(--text-muted); font-size: 12.5px; margin-top: 5px; }
+
+    .overview-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .metric-card {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--panel-card);
+      box-shadow: var(--shadow-sm);
+    }
+    .metric-label { color: var(--text-muted); font-size: 11.5px; }
+    .metric-value { margin-top: 7px; font-size: 24px; font-weight: 720; letter-spacing: -0.035em; }
+    .metric-note { margin-top: 2px; color: var(--text-muted); font-size: 11px; }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+      gap: 18px;
+    }
+    .latest-run-hero {
+      min-height: 190px;
+      justify-content: space-between;
+      background:
+        radial-gradient(circle at 90% 10%, var(--accent-light), transparent 40%),
+        var(--panel-card);
+    }
+    .latest-run-title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+    .latest-run-summary { color: var(--text-secondary); max-width: 760px; }
+    .overview-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .attention-list { display: flex; flex-direction: column; gap: 8px; }
+    .attention-item {
+      width: 100%;
+      padding: 10px 11px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--panel-elevated);
+      text-align: left;
+      color: var(--text);
+    }
+    .attention-item:hover { border-color: var(--accent); background: var(--hover); }
+    .attention-item-title { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attention-item-meta { margin-top: 3px; font-size: 10.5px; color: var(--text-muted); }
+    .settings-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .settings-value {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--panel-elevated);
+      min-width: 0;
+    }
+    .settings-value strong { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
 
     /* Common Components */
     .row { display: flex; align-items: center; gap: 10px; }
@@ -487,6 +647,9 @@ export function renderDashboardHtml(): string {
     }
     .run-scope svg { color: var(--accent); flex-shrink: 0; margin-top: 1px; }
     .run-scope strong { color: var(--text); }
+    .manual-login-panel { align-items: center; }
+    .manual-login-copy { flex: 1; min-width: 0; }
+    .manual-login-panel .button { flex-shrink: 0; }
     .checkbox-label {
       display: inline-flex;
       align-items: center;
@@ -1037,14 +1200,44 @@ export function renderDashboardHtml(): string {
 
     @media (max-width: 1024px) {
       .grid-2, .grid-1-2 { grid-template-columns: 1fr; }
+      .overview-metrics { grid-template-columns: repeat(2, 1fr); }
+      .overview-grid { grid-template-columns: 1fr; }
       .header-left { gap: 12px; }
       .workspace-picker-path, .workspace-picker-separator { display: none; }
     }
     @media (max-width: 768px) {
       header { padding: 0 16px; }
+      .layout { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        padding: 8px 12px;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        overflow-y: hidden;
+        height: auto;
+        flex-shrink: 0;
+      }
+      .sidebar-label, .sidebar-footer { display: none; }
+      .sidebar-nav { flex-direction: row; min-width: max-content; }
+      .nav-item { width: auto; padding: 8px 10px; }
       main { padding: 16px; }
+      body[data-page="reports"] main { overflow-y: auto; }
+      .page-view[data-page-view="reports"] { height: auto; }
+      .page-view[data-page-view="reports"] .grid-1-2 { min-height: auto; }
+      .page-view[data-page-view="reports"] .card { overflow: visible; }
+      .page-view[data-page-view="reports"] .runs-list { max-height: 360px; }
+      #detail-card #detail { max-height: 65vh; }
+      .overview-metrics { grid-template-columns: 1fr 1fr; }
+      .settings-summary { grid-template-columns: 1fr; }
       .brand .sub { display: none; }
       .workspace-picker-btn { max-width: 220px; }
+      .header-actions .server-status, #btn-header-manage-ws { display: none; }
+    }
+    @media (max-width: 520px) {
+      .nav-item span { display: none; }
+      .overview-metrics { grid-template-columns: 1fr; }
+      .page-heading { flex-direction: column; }
     }
   </style>
 </head>
@@ -1099,6 +1292,32 @@ export function renderDashboardHtml(): string {
   </header>
 
   <div class="layout">
+    <aside class="sidebar" aria-label="工作区导航">
+      <div class="sidebar-label">Workspace</div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-nav-page="overview">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <span>概览</span>
+        </button>
+        <button class="nav-item" data-nav-page="specs">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+          <span>验收用例</span>
+        </button>
+        <button class="nav-item" data-nav-page="run">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span>执行验收</span>
+        </button>
+        <button class="nav-item" data-nav-page="reports">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/></svg>
+          <span>运行报告</span>
+        </button>
+        <button class="nav-item" data-nav-page="settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09A1.65 1.65 0 0 0 20.91 10H21a2 2 0 1 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"/></svg>
+          <span>工作区设置</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">本地只读报告服务<br>数据保留在当前工作区</div>
+    </aside>
     <main>
       <!-- Empty State -->
       <div id="empty" class="empty-state">
@@ -1113,9 +1332,42 @@ export function renderDashboardHtml(): string {
 
       <!-- Active Workspace View -->
       <div id="workspace-view" class="hidden stack">
-        <!-- Top Grid: Task Spec & Run Config -->
-        <div class="grid-2">
-          <!-- Task Spec Editor -->
+        <!-- Overview -->
+        <section class="page-view" data-page-view="overview">
+          <div class="page-heading">
+            <div><h2>工作区概览</h2><p>聚焦最近一次验收结果和需要处理的问题。</p></div>
+            <button class="button primary" id="overview-run">配置并运行</button>
+          </div>
+          <div class="overview-metrics">
+            <div class="metric-card"><div class="metric-label">验收用例</div><div class="metric-value" id="overview-spec-total">0</div><div class="metric-note">当前工作区</div></div>
+            <div class="metric-card"><div class="metric-label">配置问题</div><div class="metric-value" id="overview-spec-invalid">0</div><div class="metric-note">需要修复的用例</div></div>
+            <div class="metric-card"><div class="metric-label">最近运行</div><div class="metric-value" id="overview-latest-status">—</div><div class="metric-note" id="overview-latest-time">暂无运行记录</div></div>
+            <div class="metric-card"><div class="metric-label">近 20 次通过率</div><div class="metric-value" id="overview-pass-rate">—</div><div class="metric-note" id="overview-run-total">0 次运行</div></div>
+          </div>
+          <div class="overview-grid">
+            <div class="card latest-run-hero">
+              <div>
+                <div class="row between"><div class="card-title">最近一次验收</div><span id="overview-latest-badge" class="status-badge blocked">暂无</span></div>
+                <div class="latest-run-title" id="overview-latest-title" style="margin-top:18px">还没有运行记录</div>
+                <div class="latest-run-summary" id="overview-latest-summary" style="margin-top:8px">运行验收后，这里会展示结果摘要。</div>
+              </div>
+              <div class="overview-actions">
+                <button class="button primary sm" id="overview-view-report" disabled>查看最近报告</button>
+                <button class="button sm" id="overview-new-spec">新建验收用例</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><div class="card-title">需要关注</div><button class="button sm" id="overview-all-reports">全部报告</button></div>
+              <div class="attention-list" id="overview-attention"><div class="sub">暂无失败或阻塞记录</div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Task Spec Editor -->
+        <section class="page-view hidden" data-page-view="specs">
+          <div class="page-heading">
+            <div><h2>验收用例</h2><p>编辑任务规格，并管理 Bundle 所需的输入与期望资源。</p></div>
+          </div>
           <div class="card">
             <div class="card-header">
               <div class="card-title">
@@ -1147,8 +1399,13 @@ export function renderDashboardHtml(): string {
               <div id="bundle-resources" class="sub" style="flex:1;font-size:11px;line-height:1.7">保存 Bundle 后可管理资源文件</div>
             </div>
           </div>
+        </section>
 
-          <!-- Run Acceptance -->
+        <!-- Run Acceptance -->
+        <section class="page-view hidden" data-page-view="run">
+          <div class="page-heading">
+            <div><h2>执行验收</h2><p>确认目标环境与执行参数，然后运行当前工作区的全部用例。</p></div>
+          </div>
           <div class="card">
             <div class="card-header">
               <div class="card-title">
@@ -1175,6 +1432,11 @@ export function renderDashboardHtml(): string {
                   <div class="label">Model</div>
                   <input class="input" id="run-model" placeholder="claude-3-5-sonnet-latest">
                 </div>
+              </div>
+              <div class="run-scope manual-login-panel">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <div class="manual-login-copy"><strong>需要人工登录？</strong><br>使用当前目标 URL 和 Profile 打开可交互浏览器；登录状态会被后续验收复用。</div>
+                <button class="button sm" id="manual-login">打开手动登录</button>
               </div>
               <div class="row between" style="margin-top: 2px">
                 <label class="checkbox-label">
@@ -1205,10 +1467,15 @@ export function renderDashboardHtml(): string {
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- Bottom Grid: Runs History & Run Detail -->
-        <div class="grid-1-2">
+        <!-- Runs History & Run Detail -->
+        <section class="page-view hidden" data-page-view="reports">
+          <div class="page-heading">
+            <div><h2>运行报告</h2><p>查看历史验收结果、断言详情和截图证据。</p></div>
+            <button class="button sm" id="refresh-runs-top">刷新报告</button>
+          </div>
+          <div class="grid-1-2">
           <!-- History List -->
           <div class="card">
             <div class="card-header">
@@ -1245,7 +1512,27 @@ export function renderDashboardHtml(): string {
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </section>
+
+        <!-- Settings -->
+        <section class="page-view hidden" data-page-view="settings">
+          <div class="page-heading">
+            <div><h2>工作区设置</h2><p>查看当前配置，或进入工作区管理修改项目参数。</p></div>
+            <button class="button primary" id="settings-edit">编辑工作区配置</button>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">当前工作区</div><span class="status-badge passed">已连接</span></div>
+            <div class="settings-summary">
+              <div class="settings-value"><span class="sub">项目名称</span><strong id="settings-name">—</strong></div>
+              <div class="settings-value"><span class="sub">项目路径</span><strong id="settings-path" style="font-family:var(--font-mono);font-size:12px">—</strong></div>
+              <div class="settings-value"><span class="sub">目标 URL</span><strong id="settings-url">—</strong></div>
+              <div class="settings-value"><span class="sub">默认 Profile</span><strong id="settings-profile">—</strong></div>
+              <div class="settings-value"><span class="sub">默认 Model</span><strong id="settings-model">—</strong></div>
+              <div class="settings-value"><span class="sub">浏览器模式</span><strong id="settings-headed">—</strong></div>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -1376,9 +1663,36 @@ export function renderDashboardHtml(): string {
   </div>
 
   <script>
-    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list' };
+    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list', currentPage: 'overview' };
     const el = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+
+    function routeParts() {
+      return location.hash.replace(/^#\\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+    }
+
+    function navigate(page, detailId) {
+      const suffix = detailId ? '/' + encodeURIComponent(detailId) : '';
+      location.hash = '#/' + page + suffix;
+    }
+
+    function renderRoute() {
+      const parts = routeParts();
+      const allowed = ['overview', 'specs', 'run', 'reports', 'settings'];
+      const page = allowed.includes(parts[0]) ? parts[0] : 'overview';
+      state.currentPage = page;
+      document.body.dataset.page = page;
+      document.querySelectorAll('[data-page-view]').forEach((node) => {
+        node.classList.toggle('hidden', node.dataset.pageView !== page);
+      });
+      document.querySelectorAll('[data-nav-page]').forEach((node) => {
+        node.classList.toggle('active', node.dataset.navPage === page);
+      });
+      if (page === 'reports' && parts[1] && state.runs.some((run) => run.runId === parts[1])) {
+        loadRun(parts[1]).catch((error) => toast(error.message, true));
+      }
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
 
     function toast(message, isError) {
       const node = el('toast');
@@ -1585,6 +1899,60 @@ export function renderDashboardHtml(): string {
       toast('工作区列表已刷新');
     };
 
+    function statusLabel(status) {
+      return ({ passed: '通过', failed: '失败', blocked: '阻塞', error: '异常' })[status] || '暂无';
+    }
+
+    function renderOverview() {
+      const runs = state.runs.slice(0, 20);
+      const latest = runs[0];
+      const invalidSpecs = state.specs.filter((spec) => spec.error).length;
+      const passed = runs.filter((run) => run.status === 'passed').length;
+      el('overview-spec-total').textContent = String(state.specs.length);
+      el('overview-spec-invalid').textContent = String(invalidSpecs);
+      el('overview-pass-rate').textContent = runs.length ? Math.round(passed / runs.length * 100) + '%' : '—';
+      el('overview-run-total').textContent = runs.length + ' 次运行';
+
+      const attention = el('overview-attention');
+      const problems = state.runs.filter((run) => run.status !== 'passed').slice(0, 5);
+      attention.replaceChildren();
+      if (!problems.length) {
+        attention.innerHTML = '<div class="sub">暂无失败或阻塞记录</div>';
+      } else {
+        problems.forEach((run) => {
+          const button = document.createElement('button');
+          button.className = 'attention-item';
+          button.innerHTML = '<div class="row between"><div class="attention-item-title">' + esc(run.requirement || run.runId) + '</div><span class="status-badge ' + esc(run.status) + '">' + statusLabel(run.status) + '</span></div>' +
+            '<div class="attention-item-meta">' + esc(new Date(run.startedAt).toLocaleString('zh-CN', { hour12: false })) + ' · ' + esc(run.passedCaseCount + '/' + run.caseCount + ' 用例通过') + '</div>';
+          button.onclick = () => navigate('reports', run.runId);
+          attention.appendChild(button);
+        });
+      }
+
+      const reportButton = el('overview-view-report');
+      if (!latest) {
+        el('overview-latest-status').textContent = '—';
+        el('overview-latest-time').textContent = '暂无运行记录';
+        el('overview-latest-title').textContent = '还没有运行记录';
+        el('overview-latest-summary').textContent = '运行验收后，这里会展示结果摘要。';
+        el('overview-latest-badge').className = 'status-badge blocked';
+        el('overview-latest-badge').textContent = '暂无';
+        reportButton.disabled = true;
+        reportButton.onclick = null;
+        return;
+      }
+
+      const time = new Date(latest.startedAt).toLocaleString('zh-CN', { hour12: false });
+      el('overview-latest-status').textContent = statusLabel(latest.status);
+      el('overview-latest-time').textContent = time;
+      el('overview-latest-title').textContent = latest.requirement || latest.runId;
+      el('overview-latest-summary').textContent = latest.passedCaseCount + '/' + latest.caseCount + ' 个用例通过，' + latest.passedCriteriaCount + '/' + latest.criteriaCount + ' 个验收项通过，耗时 ' + (latest.durationMs / 1000).toFixed(1) + ' 秒。';
+      el('overview-latest-badge').className = 'status-badge ' + latest.status;
+      el('overview-latest-badge').textContent = statusLabel(latest.status);
+      reportButton.disabled = false;
+      reportButton.onclick = () => navigate('reports', latest.runId);
+    }
+
     function showEmpty() {
       el('empty').classList.remove('hidden');
       el('workspace-view').classList.add('hidden');
@@ -1617,7 +1985,16 @@ export function renderDashboardHtml(): string {
       el('run-model').value = data.config.acceptance.model;
       el('run-headed').checked = data.config.acceptance.headed;
 
+      el('settings-name').textContent = data.workspace.name;
+      el('settings-path').textContent = data.workspace.path;
+      el('settings-url').textContent = data.config.project.baseUrl;
+      el('settings-profile').textContent = data.config.acceptance.profile;
+      el('settings-model').textContent = data.config.acceptance.model;
+      el('settings-headed').textContent = data.config.acceptance.headed ? '显示浏览器窗口' : '无头模式';
+
       await Promise.all([loadSpecs(), loadRuns()]);
+      renderOverview();
+      renderRoute();
       renderModalWorkspaceList();
     }
 
@@ -1786,6 +2163,7 @@ export function renderDashboardHtml(): string {
       }
       select.value = state.selectedSpec;
       await loadSelectedSpec();
+      renderOverview();
     }
 
     async function loadSelectedSpec() {
@@ -1964,6 +2342,7 @@ export function renderDashboardHtml(): string {
       const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/runs');
       state.runs = data.runs || [];
       renderRunsList();
+      renderOverview();
     }
 
     function renderRunsList() {
@@ -2007,6 +2386,9 @@ export function renderDashboardHtml(): string {
         node.onclick = () => {
           state.selectedRunId = run.runId;
           renderRunsList();
+          if (routeParts()[0] !== 'reports' || routeParts()[1] !== run.runId) {
+            navigate('reports', run.runId);
+          }
           loadRun(run.runId);
         };
         list.appendChild(node);
@@ -2145,7 +2527,7 @@ export function renderDashboardHtml(): string {
         });
         output.textContent = JSON.stringify(data.run, null, 2);
         await loadRuns();
-        await loadRun(data.run.runId);
+        navigate('reports', data.run.runId);
         toast('验收完成：' + data.run.status, data.run.status !== 'passed');
       } catch (error) {
         output.textContent = '执行失败：\\n' + error.message;
@@ -2153,6 +2535,39 @@ export function renderDashboardHtml(): string {
       } finally {
         runButton.disabled = false;
         runButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> 运行全部用例';
+      }
+    }
+
+    async function openManualLogin() {
+      const button = el('manual-login');
+      const viewer = window.open('about:blank', '_blank');
+      if (!viewer) {
+        toast('浏览器阻止了新窗口，请允许弹窗后重试', true);
+        return;
+      }
+      viewer.opener = null;
+      viewer.document.title = '正在打开手动登录';
+      viewer.document.body.textContent = '正在连接 BetterWright 浏览器，请稍候…';
+      button.disabled = true;
+      button.textContent = '正在打开…';
+      try {
+        const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/manual-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: el('run-url').value,
+            profile: el('run-profile').value,
+            headed: el('run-headed').checked
+          })
+        });
+        viewer.location.replace(data.viewerUrl);
+        toast('手动登录窗口已打开；完成登录后可直接运行验收');
+      } catch (error) {
+        viewer.close();
+        toast(error.message, true);
+      } finally {
+        button.disabled = false;
+        button.textContent = '打开手动登录';
       }
     }
 
@@ -2182,7 +2597,22 @@ export function renderDashboardHtml(): string {
       await loadSelectedSpec();
     };
     el('refresh-runs').onclick = loadRuns;
+    el('refresh-runs-top').onclick = loadRuns;
+    el('manual-login').onclick = openManualLogin;
     el('run-acceptance').onclick = runAcceptance;
+
+    document.querySelectorAll('[data-nav-page]').forEach((button) => {
+      button.onclick = () => navigate(button.dataset.navPage);
+    });
+    el('overview-run').onclick = () => navigate('run');
+    el('overview-new-spec').onclick = async () => {
+      navigate('specs');
+      await createSpec();
+    };
+    el('overview-all-reports').onclick = () => navigate('reports');
+    el('settings-edit').onclick = () => openModal('edit', state.selected);
+    window.addEventListener('hashchange', renderRoute);
+    if (!location.hash) history.replaceState(null, '', '#/overview');
 
     loadWorkspaces().catch((error) => toast(error.message, true));
   </script>

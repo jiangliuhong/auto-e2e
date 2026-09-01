@@ -43,8 +43,78 @@ describe('acceptance report server', () => {
     expect(html).toContain('id="header-ws-path"');
     expect(html).toContain('id="header-ws-url"');
     expect(html).toContain('id="header-ws-url-link"');
+    expect(html).toContain('data-nav-page="overview"');
+    expect(html).toContain('data-nav-page="specs"');
+    expect(html).toContain('data-nav-page="run"');
+    expect(html).toContain('data-nav-page="reports"');
+    expect(html).toContain('data-nav-page="settings"');
+    expect(html).toContain('data-page-view="overview"');
+    expect(html).toContain('id="manual-login"');
+    expect(html).toContain('/manual-login');
+    expect(html).toContain("history.replaceState(null, '', '#/overview')");
+    expect(html).toContain('body[data-page="reports"] main { overflow: hidden; }');
+    expect(html).toContain('#detail-card #detail');
+    expect(html).toContain('document.body.dataset.page = page');
     expect(html).not.toContain('class="workspace-banner"');
     expect(() => new Function(html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '')).not.toThrow();
+  });
+
+  it('从 serve 页面为当前 Profile 打开手动登录会话', async () => {
+    await instance.stop();
+    const fakeCli = path.join(root, 'fake-betterwright');
+    await fs.writeFile(fakeCli, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync('betterwright-calls.jsonl', JSON.stringify(args) + '\\n');
+if (args[0] === 'view') {
+  console.log('Live view: http://127.0.0.1:4567/?t=test-capability-token');
+  const timer = setInterval(() => {}, 1000);
+  const stop = () => { clearInterval(timer); process.exit(0); };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+} else if (args[0] === 'run') {
+  process.stdin.resume();
+  process.stdin.on('end', () => {
+    process.stdout.write(JSON.stringify({ ok: true, result: { url: 'http://127.0.0.1:3000/' } }));
+  });
+} else {
+  process.exit(1);
+}
+`, 'utf8');
+    await fs.chmod(fakeCli, 0o700);
+    instance = createAutoE2EServer({
+      projectRoot: root,
+      registryPath: path.join(root, 'workspaces.json'),
+      betterwrightBinary: fakeCli,
+      port: 0,
+    });
+    await instance.start();
+
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const response = await fetch(`${instance.url}/api/workspaces/${workspaceId}/manual-login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        url: 'http://127.0.0.1:3000',
+        profile: 'qa-manual-auth',
+        headed: false,
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      ok: true,
+      viewerUrl: 'http://127.0.0.1:4567/?t=test-capability-token',
+      targetUrl: 'http://127.0.0.1:3000/',
+      profile: 'qa-manual-auth',
+    });
+    const calls = (await fs.readFile(path.join(root, 'betterwright-calls.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line));
+    expect(calls).toEqual([
+      ['view', '--profile', 'qa-manual-auth', '--session', 'demo-manual-login', '--expose', 'local'],
+      ['run', '-', '--profile', 'qa-manual-auth', '--session', 'demo-manual-login'],
+    ]);
   });
 
   it('返回历史与逐条验收详情', async () => {

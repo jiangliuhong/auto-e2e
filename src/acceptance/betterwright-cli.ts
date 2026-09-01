@@ -23,6 +23,12 @@ const BetterWrightExecEnvelopeSchema = z.object({
   proof: z.string().nullish(),
 }).passthrough();
 
+const BetterWrightRunEnvelopeSchema = z.object({
+  ok: z.boolean(),
+  result: z.unknown().optional(),
+  error: z.string().nullish(),
+}).passthrough();
+
 const AgentResultValueSchema = z.union([
   z.string(), z.number().finite(), z.boolean(), z.null(), z.array(z.unknown()), z.record(z.unknown()),
 ]);
@@ -67,6 +73,11 @@ export const BetterWrightDoctorReportSchema = z.object({
 export type BetterWrightDoctorReport = z.infer<typeof BetterWrightDoctorReportSchema>;
 
 export type BetterWrightExecEnvelope = z.infer<typeof BetterWrightExecEnvelopeSchema>;
+
+export interface BetterWrightManualLoginSession {
+  viewerUrl: string;
+  close(): Promise<void>;
+}
 
 export interface BetterWrightCliOptions {
   binary?: string;
@@ -168,6 +179,141 @@ export class BetterWrightCli {
       );
     }
     return parsed.data;
+  }
+
+  async startManualLogin(input: {
+    targetUrl: string;
+    profile: string;
+    session: string;
+    headed?: boolean;
+  }): Promise<BetterWrightManualLoginSession> {
+    const commonArgs = [
+      '--profile',
+      input.profile,
+      '--session',
+      input.session,
+    ];
+    if (input.headed) commonArgs.push('--headed');
+
+    const viewer = await this.startViewer([
+      'view',
+      ...commonArgs,
+      '--expose',
+      'local',
+    ]);
+    try {
+      const script = [
+        `const targetUrl = ${JSON.stringify(input.targetUrl)};`,
+        'await page.goto(targetUrl);',
+        'return { url: page.url(), title: await page.title() };',
+      ].join('\n');
+      const result = await this.execute(['run', '-', ...commonArgs], script);
+      let raw: unknown;
+      try {
+        raw = JSON.parse(result.stdout);
+      } catch (error) {
+        throw new AutoE2EError(
+          ExitCode.Blocked,
+          `BetterWright 手动登录浏览器未返回合法 JSON：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      const parsed = BetterWrightRunEnvelopeSchema.safeParse(raw);
+      if (result.exitCode !== 0 || !parsed.success || !parsed.data.ok) {
+        const detail = parsed.success
+          ? parsed.data.error
+          : parsed.error.issues.map((issue) => issue.message).join('; ');
+        throw new AutoE2EError(
+          ExitCode.Blocked,
+          `无法打开手动登录目标页面：${detail || result.stderr.trim() || `退出码 ${result.exitCode}`}`,
+        );
+      }
+      return viewer;
+    } catch (error) {
+      await viewer.close();
+      throw error;
+    }
+  }
+
+  private startViewer(args: string[]): Promise<BetterWrightManualLoginSession> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.binary, [...this.prefixArgs, ...args], {
+        cwd: this.cwd,
+        env: this.env ?? process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: false,
+      });
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      let closed: Promise<void> | undefined;
+      const close = (): Promise<void> => {
+        if (closed) return closed;
+        closed = new Promise<void>((done) => {
+          if (child.exitCode !== null || child.signalCode !== null) {
+            done();
+            return;
+          }
+          const timer = setTimeout(() => {
+            child.kill('SIGKILL');
+          }, 3_000);
+          timer.unref();
+          child.once('close', () => {
+            clearTimeout(timer);
+            done();
+          });
+          child.kill('SIGTERM');
+        });
+        return closed;
+      };
+      const fail = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        void close();
+        reject(error);
+      };
+      const inspectOutput = (): void => {
+        if (settled) return;
+        const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
+        const viewerUrl = plain.match(/Live view:\s+(https?:\/\/\S+)/)?.[1];
+        if (!viewerUrl) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ viewerUrl, close });
+      };
+      const timer = setTimeout(() => {
+        fail(new AutoE2EError(
+          ExitCode.Blocked,
+          `启动手动登录窗口超时：${stderr.trim() || 'BetterWright 未返回 Live View 地址'}`,
+        ));
+      }, 15_000);
+      timer.unref();
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        stdout += chunk;
+        inspectOutput();
+      });
+      child.stderr.on('data', (chunk: string) => {
+        stderr += chunk;
+        for (const line of chunk.split(/\r?\n/).filter(Boolean)) this.logger?.info(line);
+      });
+      child.once('error', (error) => {
+        fail(new AutoE2EError(
+          ExitCode.Blocked,
+          `无法启动 BetterWright CLI（${this.binary}）：${error.message}`,
+          error,
+        ));
+      });
+      child.once('close', (code) => {
+        if (!settled) {
+          fail(new AutoE2EError(
+            ExitCode.Blocked,
+            `BetterWright Live View 提前退出：${stderr.trim() || `退出码 ${code ?? 1}`}`,
+          ));
+        }
+      });
+    });
   }
 
   private execute(args: string[], stdin?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
