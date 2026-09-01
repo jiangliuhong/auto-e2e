@@ -1,55 +1,46 @@
 {
   "name": "auto-e2e",
-  "version": "0.1.0",
-  "description": "面向 Playwright 的 Agent Runtime。Runtime 负责环境、观察、执行与反馈,推理交给外部编码 Agent。",
+  "version": "0.3.0",
+  "description": "基于 BetterWright 的本地需求验收、proof 与历史报告 CLI",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "bin": {
-    "auto-e2e": "bin/auto-e2e.js"
+    "auto-e2e": "./dist/cli.js"
   },
+  "main": "./dist/index.js",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+    ".": "./dist/index.js"
   },
-  "files": [
-    "bin",
-    "dist",
-    "README.md"
-  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx src/cli/index.ts",
-    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/patch-betterwright.mjs",
+    "patch:betterwright": "node scripts/patch-betterwright.mjs",
+    "build": "node scripts/build.mjs",
+    "link": "npm run build && npm link",
+    "unlink": "npm unlink -g auto-e2e",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
-  },
-  "engines": {
-    "node": ">=20"
+    "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "betterwright": "1.10.2",
     "commander": "^12.1.0",
-    "execa": "^9.5.1",
-    "fast-glob": "^3.3.2",
-    "fs-extra": "^11.2.0",
+    "yaml": "^2.6.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/fs-extra": "^11.0.4",
-    "@types/node": "^20.17.0",
-    "prettier": "^3.3.3",
-    "tsx": "^4.19.2",
-    "typescript": "^5.6.3",
-    "vitest": "^2.1.5"
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
   },
-  "peerDependencies": {
-    "@playwright/test": "^1.40.0"
-  },
-  "peerDependenciesMeta": {
-    "@playwright/test": {
-      "optional": true
-    }
-  }
+  "files": [
+    "dist",
+    "skills",
+    "scripts/patch-betterwright.mjs",
+    "README.md"
+  ]
 }

@@ -1,0 +1,12 @@
+project:
+  name: 163-mail-demo
+  baseUrl: https://mail.163.com/
+
+acceptance:
+  model: gpt-5.6-sol
+  profile: 163-mail-demo
+  headed: true
+
+report:
+  outputDirectory: .auto-e2e/reports
+  artifactDirectory: .auto-e2e/artifacts

@@ -1,7 +1,13 @@
-// auto-e2e 库出口。
-// 导出稳定的 Runtime 接口与共享类型,便于第三方以编程方式使用 Runtime。
-
-export * from './core/index.js'
-export * from './utils/index.js'
-export * from './scanner/index.js'
-export * from './runtime/index.js'
+export * from './runtime/exit-codes.js';
+export * from './domain/task-spec.js';
+export * from './domain/acceptance-run.js';
+export * from './config/config-schema.js';
+export * from './config/config-loader.js';
+export * from './acceptance/requirement-loader.js';
+export * from './acceptance/betterwright-cli.js';
+export * from './acceptance/history-store.js';
+export * from './acceptance/acceptance-runner.js';
+export * from './acceptance/preflight.js';
+export * from './doctor/doctor.js';
+export * from './server/server.js';
+export * from './workspace/workspace-registry.js';

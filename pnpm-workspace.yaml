@@ -1,3 +1,0 @@
-# pnpm 设置。批准 vitest/tsx 所需的 esbuild 构建脚本。
-allowBuilds:
-  esbuild: true

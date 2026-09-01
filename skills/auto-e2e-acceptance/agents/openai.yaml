@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto E2E Acceptance"
+  short_description: "Create acceptance inputs and run BetterWright verification"
+  default_prompt: "Use $auto-e2e-acceptance to prepare this workspace and verify the requested requirement."
