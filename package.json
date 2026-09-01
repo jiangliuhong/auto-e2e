@@ -14,6 +14,8 @@
     ".": "./dist/index.js"
   },
   "scripts": {
+    "postinstall": "node scripts/patch-betterwright.mjs",
+    "patch:betterwright": "node scripts/patch-betterwright.mjs",
     "build": "node scripts/build.mjs",
     "link": "npm run build && npm link",
     "unlink": "npm unlink -g auto-e2e",
@@ -38,6 +40,7 @@
   "files": [
     "dist",
     "skills",
+    "scripts/patch-betterwright.mjs",
     "README.md"
   ]
 }
