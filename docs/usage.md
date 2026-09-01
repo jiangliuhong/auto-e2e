@@ -105,7 +105,7 @@ Web 页面展示运行历史、需求正文、Commit、套件用例汇总、逐�
 
 ### 人工登录
 
-“执行验收”页面的“打开手动登录”按钮使用当前目标 URL、Profile 和浏览器模式启动 BetterWright Live View。用户在该真实浏览器会话中完成登录、扫码、MFA 或 Passkey 后，Cookie 等登录状态保存在 `$BETTERWRIGHT_HOME/browser/profiles/<profile>`，后续运行无需再次传递凭据。Live View URL 包含临时控制令牌，只通过本次 API 响应交给页面，不保存到工作区配置、SQLite 历史或报告。
+“执行验收”页面的“打开手动登录”按钮使用当前目标 URL、Profile 和浏览器模式启动 BetterWright Live View，并直接嵌入当前页面。用户在该真实浏览器会话中完成登录、扫码、MFA 或 Passkey 后，Cookie 等登录状态保存在 `$BETTERWRIGHT_HOME/browser/profiles/<profile>`，后续运行无需再次传递凭据。验收执行期间，页面会通过事件流切换到当前用例实际使用的浏览器 Session。Live View URL 包含临时控制令牌，只通过本次 API 响应或内存事件交给页面，不保存到工作区配置、SQLite 历史或报告。
 
 ## 机器调用
 

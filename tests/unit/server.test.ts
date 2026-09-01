@@ -51,6 +51,11 @@ describe('acceptance report server', () => {
     expect(html).toContain('data-page-view="overview"');
     expect(html).toContain('id="manual-login"');
     expect(html).toContain('/manual-login');
+    expect(html).toContain('id="live-view-frame"');
+    expect(html).toContain('sandbox="allow-scripts allow-forms allow-pointer-lock allow-downloads"');
+    expect(html).not.toContain('sandbox="allow-same-origin');
+    expect(html).toContain('/run-jobs');
+    expect(html).not.toContain("window.open('about:blank', '_blank')");
     expect(html).toContain("history.replaceState(null, '', '#/overview')");
     expect(html).toContain('body[data-page="reports"] main { overflow: hidden; }');
     expect(html).toContain('#detail-card #detail');
@@ -69,7 +74,7 @@ fs.appendFileSync('betterwright-calls.jsonl', JSON.stringify(args) + '\\n');
 if (args[0] === 'view') {
   console.log('Live view: http://127.0.0.1:4567/?t=test-capability-token');
   const timer = setInterval(() => {}, 1000);
-  const stop = () => { clearInterval(timer); process.exit(0); };
+  const stop = () => { fs.appendFileSync('viewer-stops.log', 'stop\\n'); clearInterval(timer); process.exit(0); };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
 } else if (args[0] === 'run') {
@@ -77,6 +82,7 @@ if (args[0] === 'view') {
   process.stdin.on('end', () => {
     process.stdout.write(JSON.stringify({ ok: true, result: { url: 'http://127.0.0.1:3000/' } }));
   });
+
 } else {
   process.exit(1);
 }
@@ -105,16 +111,170 @@ if (args[0] === 'view') {
     const body = await response.json();
     expect(body).toEqual({
       ok: true,
-      viewerUrl: 'http://127.0.0.1:4567/?t=test-capability-token',
+      viewerUrl: expect.stringMatching(/^\/api\/live-views\/[0-9a-f-]+\/\?t=[0-9a-f-]+$/),
       targetUrl: 'http://127.0.0.1:3000/',
       profile: 'qa-manual-auth',
     });
+    expect(body.viewerUrl).not.toContain('test-capability-token');
     const calls = (await fs.readFile(path.join(root, 'betterwright-calls.jsonl'), 'utf8'))
       .trim().split('\n').map((line) => JSON.parse(line));
     expect(calls).toEqual([
       ['view', '--profile', 'qa-manual-auth', '--session', 'demo-manual-login', '--expose', 'local'],
       ['run', '-', '--profile', 'qa-manual-auth', '--session', 'demo-manual-login'],
     ]);
+  });
+
+  it('异步运行验收并推送实际 Session 的 Live View', async () => {
+    await instance.stop();
+    const fakeCli = path.join(root, 'fake-betterwright-live-run');
+    await fs.writeFile(fakeCli, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync('live-run-calls.jsonl', JSON.stringify(args) + '\\n');
+if (args[0] === 'view') {
+  console.log('Live view: http://127.0.0.1:4568/?t=run-token');
+  const timer = setInterval(() => {}, 1000);
+  const stop = () => { fs.appendFileSync('viewer-stops.log', 'stop\\n'); clearInterval(timer); process.exit(0); };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+} else if (args[0] === 'exec') {
+  process.stdin.resume();
+  process.stdin.on('end', () => setTimeout(() => {
+    const answer = JSON.stringify({
+      summary: '通过',
+      criteria: [{ id: 'AC-01', description: '显示结果', status: 'passed', actual: '已显示', proof: null }]
+    });
+    process.stdout.write(JSON.stringify({ ok: true, answer, steps: 1, proof: null }));
+  }, 200));
+} else if (args[0] === 'run') {
+  process.stdin.resume();
+  process.stdin.on('end', () => {
+    process.stdout.write(JSON.stringify({ ok: true, result: { url: 'http://127.0.0.1:3000/' } }));
+  });
+} else {
+  process.exit(1);
+}
+`, 'utf8');
+    await fs.chmod(fakeCli, 0o700);
+    instance = createAutoE2EServer({
+      projectRoot: root,
+      registryPath: path.join(root, 'workspaces.json'),
+      betterwrightBinary: fakeCli,
+      port: 0,
+    });
+    await instance.start();
+
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const started = await fetch(`${instance.url}/api/workspaces/${workspaceId}/run-jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:3000', profile: 'qa-live' }),
+    });
+    expect(started.status).toBe(202);
+    const { jobId } = await started.json();
+    const active = await fetch(
+      `${instance.url}/api/workspaces/${workspaceId}/run-jobs/active`,
+    ).then((response) => response.json());
+    expect(active.job).toEqual({ id: jobId, status: 'running' });
+    const conflictingManual = await fetch(`${instance.url}/api/workspaces/${workspaceId}/manual-login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:3000', profile: 'qa-live' }),
+    });
+    expect(conflictingManual.status).toBe(409);
+    const eventText = await fetch(
+      `${instance.url}/api/workspaces/${workspaceId}/run-jobs/${jobId}/events`,
+    ).then((response) => response.text());
+    const events = eventText.trim().split('\n\n').map((entry) => {
+      const data = entry.split('\n').find((line) => line.startsWith('data: '));
+      return JSON.parse(data.slice('data: '.length));
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      'run-started', 'case-started', 'viewer-ready', 'case-completed', 'run-completed',
+    ]);
+    const viewerEvent = events.find((event) => event.type === 'viewer-ready');
+    expect(viewerEvent).toEqual(expect.objectContaining({
+      viewerUrl: expect.stringMatching(/^\/api\/live-views\/[0-9a-f-]+\/\?t=[0-9a-f-]+$/),
+    }));
+    expect(viewerEvent.viewerUrl).not.toContain('run-token');
+    expect(events.at(-1).run.status).toBe('passed');
+
+    const replayText = await fetch(
+      `${instance.url}/api/workspaces/${workspaceId}/run-jobs/${jobId}/events`,
+      { headers: { 'Last-Event-ID': '3' } },
+    ).then((response) => response.text());
+    expect(replayText.match(/^data: /gm)).toHaveLength(2);
+    expect(replayText).toContain('"eventId":4');
+    expect(replayText).toContain('"eventId":5');
+
+    const calls = (await fs.readFile(path.join(root, 'live-run-calls.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line));
+    expect(calls[0]).toEqual(expect.arrayContaining(['view', '--profile', 'qa-live', '--session']));
+    expect(calls[1][0]).toBe('exec');
+    expect(calls[0][calls[0].indexOf('--session') + 1]).toBe(calls[1][calls[1].indexOf('--session') + 1]);
+
+    const manualResponse = await fetch(`${instance.url}/api/workspaces/${workspaceId}/manual-login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:3000', profile: 'qa-live' }),
+    });
+    expect(manualResponse.status).toBe(200);
+    expect((await fs.readFile(path.join(root, 'viewer-stops.log'), 'utf8')).trim().split('\n')).toHaveLength(1);
+  });
+
+  it('关闭服务时取消并等待后台验收任务', async () => {
+    await instance.stop();
+    const fakeCli = path.join(root, 'fake-betterwright-cancellable');
+    await fs.writeFile(fakeCli, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === 'view') {
+  console.log('Live view: http://127.0.0.1:4569/?t=cancel-token');
+  const timer = setInterval(() => {}, 1000);
+  process.on('SIGTERM', () => { clearInterval(timer); process.exit(0); });
+} else if (args[0] === 'exec') {
+  fs.writeFileSync('exec-started', 'yes');
+  const timer = setInterval(() => {}, 1000);
+  process.on('SIGINT', () => {
+    fs.writeFileSync('exec-cancelled', 'yes');
+    clearInterval(timer);
+    process.exit(130);
+  });
+  process.stdin.resume();
+} else {
+  process.exit(1);
+}
+`, 'utf8');
+    await fs.chmod(fakeCli, 0o700);
+    instance = createAutoE2EServer({
+      projectRoot: root,
+      registryPath: path.join(root, 'workspaces.json'),
+      betterwrightBinary: fakeCli,
+      port: 0,
+    });
+    await instance.start();
+    const workspaces = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const workspaceId = workspaces.workspaces[0].id;
+    const started = await fetch(`${instance.url}/api/workspaces/${workspaceId}/run-jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:3000' }),
+    });
+    expect(started.status).toBe(202);
+
+    const marker = path.join(root, 'exec-started');
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await fs.access(marker);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    await expect(fs.access(marker)).resolves.toBeUndefined();
+    await instance.stop();
+    await expect(fs.readFile(path.join(root, 'exec-cancelled'), 'utf8')).resolves.toBe('yes');
   });
 
   it('返回历史与逐条验收详情', async () => {

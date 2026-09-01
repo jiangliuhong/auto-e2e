@@ -69,7 +69,7 @@ auto-e2e skill status
 
 Web UI 维护独立的工作区列表。选中工作区后，可以新建、切换、编辑和删除 `.auto-e2e/specs/<name>/spec.json` 用例包，发起验收并查看历史、步骤、结果与 proof。
 
-需要人工登录、扫码、MFA 或 Passkey 时，在“执行验收”页面确认目标 URL 与 Profile，点击“打开手动登录”。页面会打开 BetterWright 的本机可交互浏览器；完成登录后直接关闭该标签页或返回 auto-e2e，后续验收会复用同一 Profile 的登录状态。Live View 控制地址属于临时敏感信息，不会写入配置、历史或报告。
+需要人工登录、扫码、MFA 或 Passkey 时，在“执行验收”页面确认目标 URL 与 Profile，点击“打开手动登录”。BetterWright 的本机可交互浏览器会直接嵌入当前页面；完成登录后即可运行验收，后续验收会复用同一 Profile 的登录状态。运行期间该区域会自动切换到当前用例的真实浏览器 Session。Live View 控制地址属于临时敏感信息，不会写入配置、历史或报告。
 
 每个目录只描述一个用例。例如 `.auto-e2e/specs/order-search/spec.json`：
 

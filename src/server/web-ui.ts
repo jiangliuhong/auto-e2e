@@ -650,6 +650,42 @@ export function renderDashboardHtml(): string {
     .manual-login-panel { align-items: center; }
     .manual-login-copy { flex: 1; min-width: 0; }
     .manual-login-panel .button { flex-shrink: 0; }
+    .live-view-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--panel-card);
+      overflow: hidden;
+    }
+    .live-view-header {
+      min-height: 42px;
+      padding: 7px 10px 7px 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-elevated);
+    }
+    .live-view-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .live-view-title strong { font-size: 12px; }
+    .live-view-status { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .live-view-body { position: relative; height: min(58vh, 620px); min-height: 360px; background: #090a0f; }
+    .live-view-frame { width: 100%; height: 100%; border: 0; background: #fff; }
+    .live-view-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 24px;
+      color: #8b949e;
+      text-align: center;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    .live-view-card.collapsed .live-view-body { display: none; }
     .checkbox-label {
       display: inline-flex;
       align-items: center;
@@ -1465,6 +1501,28 @@ export function renderDashboardHtml(): string {
                 </div>
                 <div class="terminal-content" id="run-output">等待运行...</div>
               </div>
+
+              <div class="live-view-card" id="live-view-card">
+                <div class="live-view-header">
+                  <div class="live-view-title">
+                    <strong>实时浏览器</strong>
+                    <span class="status-badge blocked" id="live-view-badge">未连接</span>
+                    <span class="live-view-status" id="live-view-status">打开手动登录或运行验收后，将在这里显示浏览器画面。</span>
+                  </div>
+                  <div class="row">
+                    <button class="button sm" id="live-view-reload" disabled>刷新画面</button>
+                    <button class="button sm" id="live-view-toggle">收起</button>
+                  </div>
+                </div>
+                <div class="live-view-body">
+                  <div class="live-view-empty" id="live-view-empty">
+                    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="15" rx="2"></rect><path d="M8 21h8"></path><path d="M12 18v3"></path></svg>
+                    <strong>等待 BetterWright Live View</strong>
+                    <span>浏览器启动后无需离开当前页面即可登录或观察验收过程。</span>
+                  </div>
+                  <iframe class="live-view-frame hidden" id="live-view-frame" title="BetterWright 实时浏览器" referrerpolicy="no-referrer" sandbox="allow-scripts allow-forms allow-pointer-lock allow-downloads" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1663,7 +1721,7 @@ export function renderDashboardHtml(): string {
   </div>
 
   <script>
-    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list', currentPage: 'overview' };
+    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list', currentPage: 'overview', runEvents: null, runWatchStop: null, liveViewerUrl: null };
     const el = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
@@ -1964,6 +2022,8 @@ export function renderDashboardHtml(): string {
     }
 
     async function selectWorkspace(id) {
+      const changed = state.selected !== id;
+      if (changed) clearLiveViewer();
       state.selected = id;
       localStorage.setItem('auto-e2e-workspace', id);
       el('empty').classList.add('hidden');
@@ -1996,6 +2056,7 @@ export function renderDashboardHtml(): string {
       renderOverview();
       renderRoute();
       renderModalWorkspaceList();
+      if (changed || !state.runEvents) void resumeActiveRun(id);
     }
 
     async function loadWorkspaceConfigForEdit(id) {
@@ -2507,14 +2568,13 @@ export function renderDashboardHtml(): string {
 
     async function runAcceptance() {
       if (!await saveSpec()) return;
-      const runButton = el('run-acceptance');
       const output = el('run-output');
-      runButton.disabled = true;
-      runButton.innerHTML = '<span class="status-dot-pulse" style="background:#fff"></span> 正在运行 ' + state.specs.length + ' 个用例...';
-      output.textContent = 'BetterWright 正在按文件名顺序执行全部用例，请稍候...';
+      const workspaceId = state.selected;
+      setRunControlsRunning(state.specs.length);
+      output.textContent = '正在创建验收任务...';
 
       try {
-        const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/runs', {
+        const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/run-jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2525,31 +2585,20 @@ export function renderDashboardHtml(): string {
             fresh: el('run-fresh').checked
           })
         });
-        output.textContent = JSON.stringify(data.run, null, 2);
-        await loadRuns();
-        navigate('reports', data.run.runId);
-        toast('验收完成：' + data.run.status, data.run.status !== 'passed');
+        await watchRunJob(data.jobId, output, workspaceId);
       } catch (error) {
         output.textContent = '执行失败：\\n' + error.message;
         toast(error.message, true);
       } finally {
-        runButton.disabled = false;
-        runButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> 运行全部用例';
+        if (state.selected === workspaceId && !state.runEvents) setRunControlsIdle();
       }
     }
 
     async function openManualLogin() {
       const button = el('manual-login');
-      const viewer = window.open('about:blank', '_blank');
-      if (!viewer) {
-        toast('浏览器阻止了新窗口，请允许弹窗后重试', true);
-        return;
-      }
-      viewer.opener = null;
-      viewer.document.title = '正在打开手动登录';
-      viewer.document.body.textContent = '正在连接 BetterWright 浏览器，请稍候…';
       button.disabled = true;
       button.textContent = '正在打开…';
+      setLiveViewStatus('正在启动手动登录浏览器…', 'blocked', '连接中');
       try {
         const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/manual-login', {
           method: 'POST',
@@ -2560,15 +2609,178 @@ export function renderDashboardHtml(): string {
             headed: el('run-headed').checked
           })
         });
-        viewer.location.replace(data.viewerUrl);
-        toast('手动登录窗口已打开；完成登录后可直接运行验收');
+        showLiveViewer(data.viewerUrl, '手动登录 · ' + data.profile);
+        toast('手动登录浏览器已连接；完成登录后可直接运行验收');
       } catch (error) {
-        viewer.close();
+        setLiveViewStatus('手动登录启动失败：' + error.message, 'failed', '连接失败');
         toast(error.message, true);
       } finally {
         button.disabled = false;
         button.textContent = '打开手动登录';
       }
+    }
+
+    function setLiveViewStatus(message, badgeClass, badgeText) {
+      el('live-view-status').textContent = message;
+      const badge = el('live-view-badge');
+      badge.className = 'status-badge ' + badgeClass;
+      badge.textContent = badgeText;
+    }
+
+    function showLiveViewer(url, label) {
+      state.liveViewerUrl = url;
+      const frame = el('live-view-frame');
+      frame.src = url;
+      frame.classList.remove('hidden');
+      el('live-view-empty').classList.add('hidden');
+      el('live-view-reload').disabled = false;
+      el('live-view-card').classList.remove('collapsed');
+      el('live-view-toggle').textContent = '收起';
+      setLiveViewStatus(label, 'passed', '已连接');
+    }
+
+    function clearLiveViewer() {
+      state.runWatchStop?.();
+      state.runWatchStop = null;
+      disconnectLiveViewer();
+      if (el('live-view-status')) setLiveViewStatus('打开手动登录或运行验收后，将在这里显示浏览器画面。', 'blocked', '未连接');
+    }
+
+    function disconnectLiveViewer() {
+      state.liveViewerUrl = null;
+      const frame = el('live-view-frame');
+      if (frame) {
+        frame.removeAttribute('src');
+        frame.classList.add('hidden');
+      }
+      el('live-view-empty')?.classList.remove('hidden');
+      if (el('live-view-reload')) el('live-view-reload').disabled = true;
+    }
+
+    function setRunControlsRunning(count) {
+      const runButton = el('run-acceptance');
+      runButton.disabled = true;
+      runButton.innerHTML = '<span class="status-dot-pulse" style="background:#fff"></span> 正在运行 ' + count + ' 个用例...';
+      el('manual-login').disabled = true;
+    }
+
+    function setRunControlsIdle() {
+      const runButton = el('run-acceptance');
+      runButton.disabled = false;
+      runButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> 运行全部用例';
+      el('manual-login').disabled = false;
+    }
+
+    function setRunControlsChecking() {
+      const runButton = el('run-acceptance');
+      runButton.disabled = true;
+      runButton.innerHTML = '<span class="status-dot-pulse"></span> 正在检查运行状态...';
+      el('manual-login').disabled = true;
+    }
+
+    async function resumeActiveRun(workspaceId) {
+      if (state.selected !== workspaceId || state.runEvents) return;
+      setRunControlsChecking();
+      try {
+        const data = await api('/api/workspaces/' + encodeURIComponent(workspaceId) + '/run-jobs/active');
+        if (state.selected !== workspaceId || state.runEvents) return;
+        if (!data.job) {
+          setRunControlsIdle();
+          return;
+        }
+        const output = el('run-output');
+        output.textContent = '正在恢复验收任务的实时连接...';
+        setRunControlsRunning(state.specs.length);
+        try {
+          await watchRunJob(data.job.id, output, workspaceId);
+        } catch (error) {
+          if (state.selected === workspaceId) {
+            output.textContent = '执行失败：\\n' + error.message;
+            toast(error.message, true);
+          }
+        } finally {
+          if (state.selected === workspaceId && !state.runEvents) setRunControlsIdle();
+        }
+      } catch (error) {
+        if (state.selected === workspaceId) {
+          setRunControlsIdle();
+          toast('恢复验收任务失败：' + error.message, true);
+        }
+      }
+    }
+
+    function watchRunJob(jobId, output, workspaceId) {
+      return new Promise((resolve, reject) => {
+        state.runWatchStop?.();
+        const events = new EventSource('/api/workspaces/' + encodeURIComponent(workspaceId) + '/run-jobs/' + encodeURIComponent(jobId) + '/events');
+        state.runEvents = events;
+        const lines = [];
+        const seenEvents = new Set();
+        let finished = false;
+        let reconnecting = false;
+        const detach = () => {
+          if (finished) return;
+          finished = true;
+          events.close();
+          if (state.runEvents === events) state.runEvents = null;
+          if (state.runWatchStop === detach) state.runWatchStop = null;
+          resolve(null);
+        };
+        state.runWatchStop = detach;
+        const append = (line) => {
+          lines.push(line);
+          output.textContent = lines.join('\\n');
+          output.scrollTop = output.scrollHeight;
+        };
+        events.onmessage = async (message) => {
+          const event = JSON.parse(message.data);
+          if (seenEvents.has(event.eventId)) return;
+          seenEvents.add(event.eventId);
+          if (event.type === 'run-started') append('验收任务已启动。');
+          if (event.type === 'case-started') {
+            append('[' + (event.index + 1) + '/' + event.total + '] 正在执行 ' + event.caseId + ' · ' + event.title);
+            setLiveViewStatus('正在连接 ' + event.caseId + ' · ' + event.title, 'blocked', '连接中');
+          }
+          if (event.type === 'viewer-ready') {
+            showLiveViewer(event.viewerUrl, event.caseId + ' · ' + event.title);
+          }
+          if (event.type === 'viewer-error') {
+            append('实时浏览器不可用：' + event.error);
+            disconnectLiveViewer();
+            setLiveViewStatus(event.error, 'failed', '连接失败');
+          }
+          if (event.type === 'case-completed') append(event.caseId + ' 执行完成：' + event.status);
+          if (event.type === 'run-completed') {
+            finished = true;
+            events.close();
+            if (state.runEvents === events) state.runEvents = null;
+            if (state.runWatchStop === detach) state.runWatchStop = null;
+            output.textContent = JSON.stringify(event.run, null, 2);
+            setLiveViewStatus('验收完成：' + event.run.status, event.run.status === 'passed' ? 'passed' : 'failed', event.run.status === 'passed' ? '已完成' : '未通过');
+            await loadRuns();
+            toast('验收完成：' + event.run.status, event.run.status !== 'passed');
+            resolve(event.run);
+          }
+          if (event.type === 'run-failed') {
+            finished = true;
+            events.close();
+            if (state.runEvents === events) state.runEvents = null;
+            if (state.runWatchStop === detach) state.runWatchStop = null;
+            setLiveViewStatus('验收任务异常结束', 'failed', '异常');
+            reject(new Error(event.error));
+          }
+        };
+        events.onopen = () => {
+          if (reconnecting) append('实时连接已恢复。');
+          reconnecting = false;
+        };
+        events.onerror = () => {
+          if (finished) return;
+          if (!reconnecting) append('实时连接暂时中断，正在自动重连...');
+          reconnecting = true;
+          setLiveViewStatus('与验收任务的连接暂时中断，正在自动重连…', 'blocked', '重连中');
+        };
+      });
     }
 
     // Filter tabs
@@ -2600,6 +2812,16 @@ export function renderDashboardHtml(): string {
     el('refresh-runs-top').onclick = loadRuns;
     el('manual-login').onclick = openManualLogin;
     el('run-acceptance').onclick = runAcceptance;
+    el('live-view-reload').onclick = () => {
+      if (!state.liveViewerUrl) return;
+      const frame = el('live-view-frame');
+      frame.src = state.liveViewerUrl;
+    };
+    el('live-view-toggle').onclick = () => {
+      const card = el('live-view-card');
+      const collapsed = card.classList.toggle('collapsed');
+      el('live-view-toggle').textContent = collapsed ? '展开' : '收起';
+    };
 
     document.querySelectorAll('[data-nav-page]').forEach((button) => {
       button.onclick = () => navigate(button.dataset.navPage);

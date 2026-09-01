@@ -79,6 +79,8 @@ export interface BetterWrightManualLoginSession {
   close(): Promise<void>;
 }
 
+export type BetterWrightLiveViewSession = BetterWrightManualLoginSession;
+
 export interface BetterWrightCliOptions {
   binary?: string;
   cwd: string;
@@ -142,6 +144,7 @@ export class BetterWrightCli {
     session: string;
     headed?: boolean;
     fresh?: boolean;
+    signal?: AbortSignal;
   }): Promise<BetterWrightExecEnvelope> {
     const args = [
       'exec',
@@ -155,7 +158,7 @@ export class BetterWrightCli {
     ];
     if (input.headed) args.push('--headed');
     if (input.fresh) args.push('--fresh');
-    const result = await this.execute(args, input.prompt);
+    const result = await this.execute(args, input.prompt, input.signal);
     if (!result.stdout.trim()) {
       throw new AutoE2EError(
         ExitCode.Blocked,
@@ -195,12 +198,11 @@ export class BetterWrightCli {
     ];
     if (input.headed) commonArgs.push('--headed');
 
-    const viewer = await this.startViewer([
-      'view',
-      ...commonArgs,
-      '--expose',
-      'local',
-    ]);
+    const viewer = await this.startLiveView({
+      profile: input.profile,
+      session: input.session,
+      headed: input.headed,
+    });
     try {
       const script = [
         `const targetUrl = ${JSON.stringify(input.targetUrl)};`,
@@ -234,8 +236,31 @@ export class BetterWrightCli {
     }
   }
 
-  private startViewer(args: string[]): Promise<BetterWrightManualLoginSession> {
+  startLiveView(input: {
+    profile: string;
+    session: string;
+    headed?: boolean;
+    signal?: AbortSignal;
+  }): Promise<BetterWrightLiveViewSession> {
+    const args = [
+      'view',
+      '--profile',
+      input.profile,
+      '--session',
+      input.session,
+      '--expose',
+      'local',
+    ];
+    if (input.headed) args.push('--headed');
+    return this.startViewer(args, input.signal);
+  }
+
+  private startViewer(args: string[], signal?: AbortSignal): Promise<BetterWrightManualLoginSession> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new AutoE2EError(ExitCode.Blocked, 'BetterWright Live View 已取消'));
+        return;
+      }
       const child = spawn(this.binary, [...this.prefixArgs, ...args], {
         cwd: this.cwd,
         env: this.env ?? process.env,
@@ -269,9 +294,14 @@ export class BetterWrightCli {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         void close();
         reject(error);
       };
+      const onAbort = (): void => fail(new AutoE2EError(
+        ExitCode.Blocked,
+        'BetterWright Live View 已取消',
+      ));
       const inspectOutput = (): void => {
         if (settled) return;
         const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
@@ -279,6 +309,7 @@ export class BetterWrightCli {
         if (!viewerUrl) return;
         settled = true;
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         resolve({ viewerUrl, close });
       };
       const timer = setTimeout(() => {
@@ -288,6 +319,7 @@ export class BetterWrightCli {
         ));
       }, 15_000);
       timer.unref();
+      signal?.addEventListener('abort', onAbort, { once: true });
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => {
@@ -316,8 +348,16 @@ export class BetterWrightCli {
     });
   }
 
-  private execute(args: string[], stdin?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  private execute(
+    args: string[],
+    stdin?: string,
+    signal?: AbortSignal,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new AutoE2EError(ExitCode.Blocked, 'BetterWright 运行已取消'));
+        return;
+      }
       const child = spawn(this.binary, [...this.prefixArgs, ...args], {
         cwd: this.cwd,
         env: this.env ?? process.env,
@@ -326,6 +366,18 @@ export class BetterWrightCli {
       });
       let stdout = '';
       let stderr = '';
+      let killTimer: NodeJS.Timeout | undefined;
+      const cleanup = (): void => {
+        signal?.removeEventListener('abort', onAbort);
+        if (killTimer) clearTimeout(killTimer);
+      };
+      const onAbort = (): void => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        child.kill('SIGINT');
+        killTimer = setTimeout(() => child.kill('SIGKILL'), 3_000);
+        killTimer.unref();
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => { stdout += chunk; });
@@ -334,13 +386,17 @@ export class BetterWrightCli {
         for (const line of chunk.split(/\r?\n/).filter(Boolean)) this.logger?.info(line);
       });
       child.on('error', (error) => {
+        cleanup();
         reject(new AutoE2EError(
           ExitCode.Blocked,
           `无法启动 BetterWright CLI（${this.binary}）：${error.message}`,
           error,
         ));
       });
-      child.on('close', (code) => resolve({ exitCode: code ?? 1, stdout, stderr }));
+      child.on('close', (code) => {
+        cleanup();
+        resolve({ exitCode: code ?? 1, stdout, stderr });
+      });
       if (stdin !== undefined) child.stdin.end(stdin);
       else child.stdin.end();
     });

@@ -43,6 +43,25 @@ export interface ExecuteAcceptanceOptions {
   betterwrightBinary?: string;
   logger?: Logger;
   now?: () => Date;
+  lifecycle?: AcceptanceRunLifecycle;
+  signal?: AbortSignal;
+}
+
+export interface AcceptanceCaseLifecycleContext {
+  caseId: string;
+  title: string;
+  index: number;
+  total: number;
+  profile: string;
+  session: string;
+}
+
+export interface AcceptanceRunLifecycle {
+  onCaseStarting?(context: AcceptanceCaseLifecycleContext): void | Promise<void>;
+  onCaseCompleted?(
+    context: AcceptanceCaseLifecycleContext,
+    result: AcceptanceCaseRun,
+  ): void | Promise<void>;
 }
 
 export async function executeAcceptance(
@@ -69,10 +88,20 @@ export async function executeAcceptance(
   });
   const cases: AcceptanceCaseRun[] = [];
   for (const [index, requirement] of requirementSet.requirements.entries()) {
+    throwIfCancelled(options.signal);
     const session = requirementSet.suite
       ? `${baseSession}-${safeCaseId(requirement.caseId, index)}`
       : baseSession;
-    cases.push(await executeCase({
+    const lifecycleContext: AcceptanceCaseLifecycleContext = {
+      caseId: requirement.caseId,
+      title: requirement.source.title,
+      index,
+      total: requirementSet.requirements.length,
+      profile,
+      session,
+    };
+    await options.lifecycle?.onCaseStarting?.(lifecycleContext);
+    const caseRun = await executeCase({
       requirement,
       targetUrl,
       profile,
@@ -88,7 +117,11 @@ export async function executeAcceptance(
       client,
       now,
       stagingId: `${runId}-${safeCaseId(requirement.caseId, index)}`,
-    }));
+      signal: options.signal,
+    });
+    throwIfCancelled(options.signal);
+    cases.push(caseRun);
+    await options.lifecycle?.onCaseCompleted?.(lifecycleContext, caseRun);
   }
 
   const finishedAt = now().toISOString();
@@ -174,6 +207,7 @@ async function executeCase(input: {
   client: BetterWrightCli;
   now: () => Date;
   stagingId: string;
+  signal?: AbortSignal;
 }): Promise<AcceptanceCaseRun> {
   const startedDate = input.now();
   const staged = input.requirement.resources.length > 0
@@ -205,6 +239,7 @@ async function executeCase(input: {
       session: input.session,
       headed: input.headed,
       fresh: input.fresh,
+      signal: input.signal,
     });
   } catch (error) {
     if (!(error instanceof AutoE2EError)) throw error;
@@ -330,6 +365,12 @@ async function executeCase(input: {
     ...(workflowSteps ? { workflowSteps } : {}),
     ...(resultAssertions ? { resultAssertions } : {}),
   };
+}
+
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new AutoE2EError(ExitCode.Blocked, '验收运行已取消');
+  }
 }
 
 function evaluateResult(
