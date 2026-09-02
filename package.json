@@ -1,5 +1,5 @@
 {
-  "name": "auto-e2e",
+  "name": "@jarome/auto-e2e",
   "version": "0.3.0",
   "description": "基于 BetterWright 的本地需求验收、proof 与历史报告 CLI",
   "type": "module",

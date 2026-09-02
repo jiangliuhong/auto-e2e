@@ -16,7 +16,7 @@ describe('npm publish script', () => {
     const result = await runScript(fixture, ['--dry-run', '--tag', 'next']);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Dry run complete for auto-e2e@0.3.0');
+    expect(result.stdout).toContain('Dry run complete for @jarome/auto-e2e@0.3.0');
     expect(await readCalls(fixture)).toEqual([
       'npm ci',
       'npm run typecheck',
@@ -31,18 +31,18 @@ describe('npm publish script', () => {
     const result = await runScript(fixture, []);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Published auto-e2e@0.3.0 with dist-tag latest');
+    expect(result.stdout).toContain('Published @jarome/auto-e2e@0.3.0 with dist-tag latest');
     expect(await readCalls(fixture)).toEqual([
       'git status --porcelain',
       'npm whoami --registry https://registry.npmjs.org',
-      'npm view auto-e2e@0.3.0 version --registry https://registry.npmjs.org',
+      'npm view @jarome/auto-e2e@0.3.0 version --registry https://registry.npmjs.org',
       'npm ci',
       'npm run typecheck',
       'npm test',
       'npm run build',
       'npm pack --dry-run',
       'npm publish --access public --tag latest --registry https://registry.npmjs.org',
-      'npm view auto-e2e@0.3.0 version --registry https://registry.npmjs.org',
+      'npm view @jarome/auto-e2e@0.3.0 version --registry https://registry.npmjs.org',
     ]);
   });
 
@@ -60,11 +60,11 @@ describe('npm publish script', () => {
     const result = await runScript(fixture, []);
 
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('auto-e2e@0.3.0 already exists');
+    expect(result.stderr).toContain('@jarome/auto-e2e@0.3.0 already exists');
     expect(await readCalls(fixture)).toEqual([
       'git status --porcelain',
       'npm whoami --registry https://registry.npmjs.org',
-      'npm view auto-e2e@0.3.0 version --registry https://registry.npmjs.org',
+      'npm view @jarome/auto-e2e@0.3.0 version --registry https://registry.npmjs.org',
     ]);
   });
 });
@@ -80,7 +80,7 @@ async function createFixture(options: { dirty: boolean; published?: boolean }): 
   );
   await fs.writeFile(
     path.join(root, 'package.json'),
-    JSON.stringify({ name: 'auto-e2e', version: '0.3.0' }),
+    JSON.stringify({ name: '@jarome/auto-e2e', version: '0.3.0' }),
   );
   if (options.published) {
     await fs.writeFile(path.join(root, 'published'), 'yes');
