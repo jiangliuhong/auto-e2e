@@ -17,7 +17,9 @@ auto-e2e 只能部署并运行在本地机器上。GitLab 的 `master` 分支收
 
 ## 2. 推荐架构
 
-使用安装在 auto-e2e 本机上的专属 GitLab Runner。Runner 主动连接 GitLab 领取 CI Job，因此 GitLab 不需要访问本机地址，也不需要 webhook、端口映射或内网穿透。
+使用服务于 auto-e2e 本机的专属 GitLab Runner。Runner 主动连接 GitLab 领取 CI Job，因此 GitLab 不需要访问本机地址，也不需要 webhook、端口映射或内网穿透。
+
+推荐直接在宿主机安装 Runner 并使用 Shell executor。若 Runner 管理进程必须部署在 Docker 中，不能在 Runner 容器中用 Shell executor 直接调用宿主机 CLI；容器与宿主机属于不同的进程和文件系统命名空间。此时只能增加明确的远程执行边界，例如使用 SSH executor 连接回宿主机。不要通过 `privileged`、挂载 Docker Socket 或 `nsenter` 绕过这个边界。
 
 ```text
 push master
@@ -66,7 +68,105 @@ macOS Runner 应以登录用户的 LaunchAgent 运行。用户退出登录后 Ru
 
 Shell executor 会以 Runner 用户权限执行仓库中的 CI 脚本，因此只有受信任的人员可以修改 `.gitlab-ci.yml`、Spec Bundle 和 master 分支内容。
 
-### 3.2 Pipeline 触发规则
+### 3.2 Runner 管理进程使用 Docker（可选）
+
+如果只想把 Runner 管理进程放进 Docker，而 auto-e2e、Node.js、BetterWright、浏览器 Profile 和工作目录仍位于宿主机，使用以下结构：
+
+```text
+GitLab
+  │ HTTPS（Runner 主动轮询）
+  ▼
+GitLab Runner 容器
+  │ SSH
+  ▼
+宿主机登录用户
+  ├── checkout 到 ~/gitlab-builds/...
+  ├── 调用宿主机 auto-e2e
+  └── 复用宿主机 BetterWright Profile
+```
+
+这里 `executor` 必须是 `ssh`，不能是 `shell` 或 `docker`：
+
+- `shell` 会在 Runner 容器内执行脚本，不是在宿主机执行。
+- `docker` 会再创建 Job 容器，仍然不会执行宿主机进程。
+- 把宿主机的 `auto-e2e` 文件挂载进容器，只是共享文件；实际进程仍在 Linux 容器中运行，并不能复用 macOS 浏览器和登录用户会话。
+
+Runner 容器示例：
+
+```yaml
+# compose.yaml
+services:
+  gitlab-runner:
+    # 使用与 GitLab 服务端兼容的固定版本，不要在生产环境使用 latest。
+    image: gitlab/gitlab-runner:alpine-v19.3.1
+    container_name: local-auto-e2e-runner
+    restart: unless-stopped
+    volumes:
+      - ./config:/etc/gitlab-runner
+      - ./ssh:/root/.ssh:ro
+    extra_hosts:
+      # Docker Desktop 已内置该名称；host-gateway 供 Linux Docker 使用。
+      - host.docker.internal:host-gateway
+```
+
+Runner 注册后，把持久化目录中的 `config/config.toml` 调整为：
+
+```toml
+concurrent = 1
+check_interval = 3
+shutdown_timeout = 30
+
+[[runners]]
+  name = "local-auto-e2e"
+  url = "https://gitlab.example.com"
+  token = "glrt-REPLACE_ME"
+  executor = "ssh"
+  builds_dir = "/Users/autoe2e/gitlab-builds"
+  environment = ["PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"]
+
+  [runners.ssh]
+    host = "host.docker.internal"
+    port = "22"
+    user = "autoe2e"
+    identity_file = "/root/.ssh/id_ed25519"
+    disable_strict_host_key_checking = false
+```
+
+部署时还必须完成以下宿主机准备：
+
+1. 创建权限受限的 `autoe2e` 用户；在 macOS 上让该用户保持登录，并由该用户初始化 auto-e2e、BetterWright Profile 和 `serve`。
+2. 仅允许 Runner 使用专用 SSH Key 登录该用户；私钥不得提交仓库，`./config` 和 `./ssh` 目录只允许管理员读取。
+3. 在 Runner 容器使用的 `known_hosts` 中预置并核对宿主机 SSH Host Key，不要关闭严格校验。
+4. 确保非交互 SSH 会话中的 `PATH` 能找到同一个 Node.js 和 `auto-e2e`；先从 Runner 容器执行 `ssh ... 'command -v node; command -v auto-e2e; auto-e2e --version'` 验证。
+5. 在 GitLab 中把 Runner 锁定到单一受信任项目，设置 tag `local-auto-e2e`，关闭 untagged Job，并限制为 protected refs。
+
+SSH executor 目前处于 GitLab 的维护模式，只支持 Bash 脚本且不支持 Runner cache。更关键的是，GitLab 官方要求在 SSH 目标宿主机提供 `gitlab-runner`，才能由 SSH executor 上传 Job artifacts。因此：
+
+- 当前只依赖退出码和 stdout JSON 时，可以先使用上述结构。
+- 实现本文的 JUnit/proof CI artifacts 后，宿主机还要安装与容器版本一致的 `gitlab-runner` 命令（不必在宿主机常驻运行服务）。
+- 如果不能接受宿主机安装该 helper，应改回宿主机原生 Shell executor；不要用无特权边界的宿主机控制方案替代。
+
+注册与启动示例：
+
+先在 GitLab 项目的 **Settings > CI/CD > Runners** 创建 Project Runner，并在服务端设置 tag、protected、run untagged 和项目锁定策略；使用 `glrt-` 开头的 Runner authentication token 注册时，这些设置不能再通过注册命令覆盖。
+
+```bash
+docker compose up -d
+docker compose exec gitlab-runner gitlab-runner register \
+  --non-interactive \
+  --url "https://gitlab.example.com" \
+  --token "$GITLAB_RUNNER_TOKEN" \
+  --executor "ssh" \
+  --description "local-auto-e2e" \
+  --ssh-host "host.docker.internal" \
+  --ssh-port "22" \
+  --ssh-user "autoe2e" \
+  --ssh-identity-file "/root/.ssh/id_ed25519"
+```
+
+不要把 `$GITLAB_RUNNER_TOKEN` 写入 Compose 文件或仓库。注册成功后，Runner authentication token 会保存在挂载的 `config.toml` 中，应按凭据文件保护。
+
+### 3.3 Pipeline 触发规则
 
 仅处理 push 到 `master` 的 Pipeline，不处理 tag、Merge Request Pipeline、定时任务或手动 Pipeline：
 
@@ -84,7 +184,7 @@ rules:
 
 Runner 自己负责检出 `$CI_COMMIT_SHA`。auto-e2e 继续通过本地 `git rev-parse HEAD` 把实际 commit 写入验收结果，不另行更新工作树。
 
-### 3.3 连续 push 策略
+### 3.4 连续 push 策略
 
 GitLab Pipeline 是任务队列的唯一权威来源，不在 auto-e2e 内再实现第二套 webhook 队列：
 
@@ -231,6 +331,29 @@ GitLab Test Report 用来显示用例明细，不能把验收覆盖率伪装成�
 - JSON 保存原始数值，Web UI 再格式化为百分比。
 
 ## 6. GitLab CI 示例
+
+当前 v0.3.0 可以先使用退出码和 Job 日志完成最小集成：
+
+```yaml
+stages:
+  - acceptance
+
+auto-e2e-acceptance:
+  stage: acceptance
+  tags:
+    - local-auto-e2e
+  resource_group: local-auto-e2e
+  interruptible: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - command -v node
+    - command -v auto-e2e
+    - auto-e2e --project-root "$CI_PROJECT_DIR" --non-interactive --json doctor --project
+    - auto-e2e --project-root "$CI_PROJECT_DIR" --non-interactive --json run
+```
+
+此版本的历史、报告和 proof 仍写在 checkout 内，Runner 清理工作目录后不能保证长期保留；长期历史和 GitLab artifacts 要等本方案第 4 节的能力实现后再启用。
 
 以下示例使用待实现的 `--ci-report-directory`：
 
