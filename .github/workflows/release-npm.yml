@@ -1,0 +1,52 @@
+name: Release npm package
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish npm package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out release tag and main history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      # OIDC publishing requires npm >= 11.5.1. Keep the release CLI explicit.
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11.6.0
+      - name: Verify tag, main ancestry, lockfile and npm version availability
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/check-npm-release.mjs
+      - name: Test, build and inspect package
+        if: steps.release.outputs.published == 'false'
+        run: npm run publish:npm -- --dry-run
+      # npm whoami does not authenticate via OIDC. The local publishing script
+      # remains for interactive/token-based use; CI publishes directly here.
+      - name: Publish with npm trusted publishing
+        if: steps.release.outputs.published == 'false'
+        env:
+          NPM_DIST_TAG: ${{ steps.release.outputs.dist_tag }}
+        run: npm publish --access public --provenance --tag "$NPM_DIST_TAG" --registry https://registry.npmjs.org

@@ -1,7 +1,11 @@
 {
-  "name": "auto-e2e",
+  "name": "@jarome/auto-e2e",
   "version": "0.3.0",
   "description": "基于 BetterWright 的本地需求验收、proof 与历史报告 CLI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiangliuhong/auto-e2e.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.18.0"
@@ -23,7 +27,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "publish:npm": "bash scripts/publish-npm.sh"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "betterwright": "1.10.2",
