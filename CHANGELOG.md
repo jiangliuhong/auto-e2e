@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 新增 GitHub Actions CI 与 tag 触发的 npm OIDC 自动发布，校验版本、lockfile 和 main 归属，并跳过已发布版本。
 - npm 包名改为 `@jarome/auto-e2e`，避免与 npmjs 上已有的非关联包重名。
 - 新增 `.auto-e2e/specs/*.spec.json` 多文件用例约定；不再读取旧版 `.auto-e2e/task-spec.json`。
 - 每个用例文件使用独立 BetterWright session 运行，SQLite、JSON 快照、CLI 和 Web UI 展示汇总与逐用例报告。

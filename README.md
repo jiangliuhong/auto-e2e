@@ -28,31 +28,11 @@ auto-e2e 是一个基于 BetterWright 的本地需求验收工具。它适合在
 
 ### 1. 安装
 
-需要 Node.js 22.18.0 或更高版本。目前请从源码安装：
+需要 Node.js 22.18.0 或更高版本。通过 npmjs 全局安装：
 
 ```bash
-git clone https://github.com/jiangliuhong/auto-e2e.git
-cd auto-e2e
-npm install
-npm run build
-npm link
+npm install --global @jarome/auto-e2e
 ```
-
-发布前可先完整执行构建、测试和 npm 包内容检查：
-
-```bash
-npm run publish:npm -- --dry-run
-```
-
-确认版本号、Git 工作区和 npm 登录状态后发布到 npmjs.com：
-
-```bash
-npm login --registry https://registry.npmjs.org
-npm run publish:npm
-```
-
-脚本默认发布到 `latest`；预发布版本可追加 `--tag next`。正式发布要求 Git
-工作区干净，确需从未提交状态发布时可显式追加 `--allow-dirty`。
 
 首次安装后，初始化随包提供的 BetterWright 浏览器和模型后端：
 
@@ -233,6 +213,8 @@ auto-e2e 使用固定退出码，方便流水线判断结果：
 
 欢迎通过 [Issue](https://github.com/jiangliuhong/auto-e2e/issues) 报告问题、提出使用场景或讨论改进建议，也欢迎提交 Pull Request。
 
+推送到 `main` 或提交以 `main` 为目标的 PR 时，GitHub Actions 会自动运行检查。完成 npm Trusted Publisher 一次性授权后，将新版本合并到 `main` 并推送匹配的 `v*.*.*` tag，即可自动发布到 npmjs；单独合并不会发布。配置与操作步骤见 [npm 自动发布说明](docs/npm-release.md)。
+
 提交代码前，请运行：
 
 ```bash
@@ -240,3 +222,19 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+维护者发布新版本前，可先完整执行构建、测试和 npm 包内容检查：
+
+```bash
+npm run publish:npm -- --dry-run
+```
+
+确认版本号、Git 工作区和 npm 登录状态后发布到 npmjs.com：
+
+```bash
+npm login --registry https://registry.npmjs.org
+npm run publish:npm
+```
+
+脚本默认发布到 `latest`；预发布版本可追加 `--tag next`。正式发布要求 Git
+工作区干净，确需从未提交状态发布时可显式追加 `--allow-dirty`。
