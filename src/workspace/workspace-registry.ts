@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../config/config-loader.js';
+import { autoE2EHome, workspaceId } from '../config/paths.js';
 import { AutoE2EError, ExitCode } from '../runtime/exit-codes.js';
 
 export interface WorkspaceRecord {
@@ -30,7 +29,10 @@ interface RegistryFile {
 export class WorkspaceRegistry {
   readonly filePath: string;
 
-  constructor(filePath = defaultRegistryPath()) {
+  constructor(
+    filePath = defaultRegistryPath(),
+    private readonly configPathForWorkspace: (projectRoot: string) => string | undefined = () => undefined,
+  ) {
     this.filePath = path.resolve(filePath);
   }
 
@@ -41,12 +43,14 @@ export class WorkspaceRegistry {
     for (const workspace of stored.workspaces) {
       if (!(await isDirectory(workspace.path))) continue;
       retained.push(workspace);
-      const config = await loadConfig({ projectRoot: workspace.path }).catch(() => undefined);
+      const config = await loadConfig({
+        projectRoot: workspace.path, configPath: this.configPathForWorkspace(workspace.path),
+      }).catch(() => undefined);
       resolved.push({
         ...workspace,
         name: config?.project.name ?? path.basename(workspace.path),
         targetUrl: config?.project.baseUrl ?? null,
-        configError: config ? null : '无法加载 .auto-e2e.yaml',
+        configError: config ? null : '无法加载项目配置',
       });
     }
     if (retained.length !== stored.workspaces.length) {
@@ -76,7 +80,7 @@ export class WorkspaceRegistry {
     if (existing) existing.lastUsedAt = now;
     else stored.workspaces.push({ id, path: realPath, addedAt: now, lastUsedAt: now });
     await this.write(stored);
-    const config = await loadConfig({ projectRoot: realPath });
+    const config = await loadConfig({ projectRoot: realPath, configPath: this.configPathForWorkspace(realPath) });
     return {
       id,
       path: realPath,
@@ -130,14 +134,7 @@ export class WorkspaceRegistry {
 }
 
 export function defaultRegistryPath(): string {
-  const home = process.env.AUTO_E2E_HOME
-    ? path.resolve(process.env.AUTO_E2E_HOME)
-    : path.join(os.homedir(), '.auto-e2e');
-  return path.join(home, 'workspaces.json');
-}
-
-function workspaceId(workspacePath: string): string {
-  return createHash('sha256').update(workspacePath).digest('hex').slice(0, 16);
+  return path.join(autoE2EHome(), 'workspaces.json');
 }
 
 async function isDirectory(candidate: string): Promise<boolean> {

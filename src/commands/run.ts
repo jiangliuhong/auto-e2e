@@ -19,7 +19,7 @@ export interface AcceptanceRunOptions extends RunOptions {
 
 export async function runAcceptanceCommand(opts: AcceptanceRunOptions): Promise<number> {
   return runCommand(opts, async (ctx) => {
-    const config = await loadConfig({ projectRoot: ctx.projectRoot });
+    const config = await loadConfig({ projectRoot: ctx.projectRoot, configPath: opts.config });
     const result = await executeAcceptance({
       projectRoot: ctx.projectRoot,
       config,

@@ -1,7 +1,10 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import YAML from 'yaml';
+import { listCommand, showCommand } from '../../src/commands/history.js';
+import { loadConfig } from '../../src/config/config-loader.js';
 import { AcceptanceHistoryStore } from '../../src/acceptance/history-store.js';
 import type { AcceptanceRun } from '../../src/domain/acceptance-run.js';
 import { createAutoE2EServer, type AutoE2EServerInstance } from '../../src/server/server.js';
@@ -35,12 +38,88 @@ describe('acceptance report server', () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
+
+  it('配置保存使用新位置并省略默认个人路径，旧文件和自定义相对路径保持兼容', async () => {
+    const { workspaces } = await fetch(`${instance.url}/api/workspaces`).then((r) => r.json());
+    const endpoint = `${instance.url}/api/workspaces/${workspaces[0].id}`;
+    await fs.rm(path.join(root, '.auto-e2e.yaml'));
+    let data = await fetch(endpoint).then((r) => r.json());
+    expect(data.configFile).toBe('.auto-e2e/config.yaml');
+    data.config.project.name = 'new-name';
+    expect((await fetch(`${endpoint}/config`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config: data.config }) })).status).toBe(200);
+    const saved = YAML.parse(await fs.readFile(path.join(root, '.auto-e2e/config.yaml'), 'utf8'));
+    expect(saved.project.name).toBe('new-name');
+    expect(saved.acceptance.databasePath).toBeUndefined();
+    expect(saved.report.outputDirectory).toBeUndefined();
+    expect(saved.report.artifactDirectory).toBeUndefined();
+    await expect(fs.access(path.join(root, '.auto-e2e.yaml'))).rejects.toThrow();
+
+    await fs.rm(path.join(root, '.auto-e2e/config.yaml'));
+    await fs.writeFile(path.join(root, '.auto-e2e.yaml'), 'project:\n  name: legacy\n  baseUrl: http://localhost:3000\nreport:\n  artifactDirectory: custom/proof\n');
+    data = await fetch(endpoint).then((r) => r.json());
+    expect(data.configFile).toBe('.auto-e2e.yaml');
+    data.config.project.name = 'updated-legacy';
+    await fetch(`${endpoint}/config`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config: data.config }) });
+    const legacy = YAML.parse(await fs.readFile(path.join(root, '.auto-e2e.yaml'), 'utf8'));
+    expect(legacy.project.name).toBe('updated-legacy');
+    expect(legacy.report.artifactDirectory).toBe('custom/proof');
+    await expect(fs.access(path.join(root, '.auto-e2e/config.yaml'))).rejects.toThrow();
+  });
+
+
+  it('只有新配置也能识别工作区，serve 的显式配置用于读写且不改默认文件', async () => {
+    await instance.stop();
+    await fs.rename(path.join(root, '.auto-e2e.yaml'), path.join(root, '.auto-e2e/config.yaml'));
+    await fs.rm(path.join(root, '.auto-e2e/specs'), { recursive: true });
+    instance = createAutoE2EServer({ projectRoot: root, registryPath: path.join(root, 'fresh-registry.json'), port: 0 });
+    await instance.start();
+    const { workspaces } = await fetch(`${instance.url}/api/workspaces`).then((r) => r.json());
+    expect(workspaces).toHaveLength(1);
+    await instance.stop();
+    await fs.writeFile(path.join(root, 'custom.yaml'), 'project:\n  name: custom\n  baseUrl: http://localhost:4000\n');
+    instance = createAutoE2EServer({ projectRoot: root, configPath: 'custom.yaml', registryPath: path.join(root, 'fresh-registry.json'), port: 0 });
+    await instance.start();
+    const endpoint = `${instance.url}/api/workspaces/${workspaces[0].id}`;
+    const data = await fetch(endpoint).then((r) => r.json());
+    expect(data.configFile).toBe('custom.yaml');
+    expect(data.config.project.name).toBe('custom');
+    expect(data.workspace.name).toBe('custom');
+    const otherRoot = path.join(root, 'other-project');
+    await fs.mkdir(otherRoot);
+    const added = await fetch(`${instance.url}/api/workspaces`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: otherRoot }) }).then((r) => r.json());
+    const other = await fetch(`${instance.url}/api/workspaces/${added.workspace.id}`).then((r) => r.json());
+    expect(other.config.project.name).toBe('other-project');
+    expect(other.configFile).toBe('.auto-e2e/config.yaml');
+    data.config.project.name = 'custom-edited';
+    expect((await fetch(`${endpoint}/config`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config: data.config }) })).status).toBe(200);
+    expect(YAML.parse(await fs.readFile(path.join(root, 'custom.yaml'), 'utf8')).project.name).toBe('custom-edited');
+    expect(YAML.parse(await fs.readFile(path.join(root, '.auto-e2e/config.yaml'), 'utf8')).project.name).toBe('demo');
+  });
+
+  it('用户目录 artifact 可读取，拒绝目录穿越和符号链接逃逸', async () => {
+    const config = await loadConfig({ projectRoot: root });
+    await fs.mkdir(config.report.artifactDirectory, { recursive: true });
+    await fs.writeFile(path.join(config.report.artifactDirectory, 'proof.png'), 'proof');
+    await fs.writeFile(path.join(root, 'outside.txt'), 'outside');
+    await fs.symlink(path.join(root, 'outside.txt'), path.join(config.report.artifactDirectory, 'escape.png'));
+    const { workspaces } = await fetch(`${instance.url}/api/workspaces`).then((r) => r.json());
+    const endpoint = `${instance.url}/api/workspaces/${workspaces[0].id}/artifacts`;
+    expect(await fetch(`${endpoint}/proof.png`).then((r) => r.text())).toBe('proof');
+    expect((await fetch(`${endpoint}/escape.png`)).status).toBe(400);
+    expect((await fetch(`${endpoint}/..%2Foutside.txt`)).status).toBe(400);
+  });
+
   it('呈现工作区与主题控制', async () => {
     const html = await fetch(instance.url).then((response) => response.text());
     expect(html).toContain('工作区');
     expect(html).toContain('切换为亮色');
     expect(html).toContain('.auto-e2e/specs/');
     expect(html).toContain('运行全部用例');
+    expect(html).toContain('id="run-spec-picker"');
+    expect(html).toContain('id="run-spec-all"');
+    expect(html).toContain('id="run-spec-none"');
+    expect(html).toContain('state.runSpecReferences.includes(editedSpec.reference)');
+    expect(html).toContain('if (shouldSaveEditedSpec && !await saveSpec()) return;');
     expect(html).toContain('id="run-concurrency"');
     expect(html).toContain('id="header-ws-path"');
     expect(html).toContain('id="header-ws-url"');
@@ -49,6 +128,8 @@ describe('acceptance report server', () => {
     expect(html).toContain('data-nav-page="specs"');
     expect(html).toContain('data-nav-page="run"');
     expect(html).toContain('data-nav-page="reports"');
+    expect(html).toContain('id="export-run-html"');
+    expect(html).toContain('id="export-run-markdown"');
     expect(html).toContain('data-nav-page="doctor"');
     expect(html).toContain('data-nav-page="settings"');
     expect(html).toContain('data-page-view="overview"');
@@ -75,6 +156,22 @@ describe('acceptance report server', () => {
     expect(html).toContain('document.body.dataset.page = page');
     expect(html).not.toContain('class="workspace-banner"');
     expect(() => new Function(html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '')).not.toThrow();
+  });
+
+  it('运行接口拒绝空选择和工作区外的用例路径', async () => {
+    const { workspaces } = await fetch(`${instance.url}/api/workspaces`).then((response) => response.json());
+    const endpoint = `${instance.url}/api/workspaces/${workspaces[0].id}/run-jobs`;
+    const empty = await fetch(endpoint, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ specs: [] }),
+    });
+    expect(empty.status).toBe(400);
+    expect((await empty.json()).error).toContain('至少包含一个');
+    const unknown = await fetch(endpoint, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ specs: ['../outside/spec.json'] }),
+    });
+    expect(unknown.status).toBe(400);
+    expect((await unknown.json()).error).toContain('验收用例不存在');
   });
 
   it('从 Web UI 运行指定范围的环境诊断', async () => {
@@ -194,6 +291,7 @@ if (args[0] === 'view') {
     const calls = (await fs.readFile(path.join(root, 'betterwright-calls.jsonl'), 'utf8'))
       .trim().split('\n').map((line) => JSON.parse(line));
     expect(calls).toEqual([
+      ['run', '-', '--profile', 'qa-manual-auth', '--session', 'demo-manual-login'],
       ['view', '--profile', 'qa-manual-auth', '--session', 'demo-manual-login', '--expose', 'local'],
       ['run', '-', '--profile', 'qa-manual-auth', '--session', 'demo-manual-login'],
     ]);
@@ -201,6 +299,9 @@ if (args[0] === 'view') {
 
   it('异步运行验收并推送实际 Session 的 Live View', async () => {
     await instance.stop();
+    await fs.writeFile(path.join(root, '.auto-e2e', 'specs', 'ignored.spec.json'), JSON.stringify({
+      taskId: 'IGNORED', title: '不应执行', requirement: '不应执行', acceptanceCriteria: ['不应执行'],
+    }), 'utf8');
     const fakeCli = path.join(root, 'fake-betterwright-live-run');
     await fs.writeFile(fakeCli, `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -244,7 +345,11 @@ if (args[0] === 'view') {
     const started = await fetch(`${instance.url}/api/workspaces/${workspaceId}/run-jobs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: 'http://127.0.0.1:3000', profile: 'qa-live' }),
+      body: JSON.stringify({
+        url: 'http://127.0.0.1:3000',
+        profile: 'qa-live',
+        specs: ['.auto-e2e/specs/query.spec.json'],
+      }),
     });
     expect(started.status).toBe(202);
     const { jobId } = await started.json();
@@ -274,6 +379,7 @@ if (args[0] === 'view') {
     }));
     expect(viewerEvent.viewerUrl).not.toContain('run-token');
     expect(events.at(-1).run.status).toBe('passed');
+    expect(events.at(-1).run.source.reference).toBe('.auto-e2e/specs/query.spec.json');
 
     const replayText = await fetch(
       `${instance.url}/api/workspaces/${workspaceId}/run-jobs/${jobId}/events`,
@@ -285,9 +391,9 @@ if (args[0] === 'view') {
 
     const calls = (await fs.readFile(path.join(root, 'live-run-calls.jsonl'), 'utf8'))
       .trim().split('\n').map((line) => JSON.parse(line));
-    expect(calls[0]).toEqual(expect.arrayContaining(['view', '--profile', 'qa-live', '--session']));
-    expect(calls[1][0]).toBe('exec');
-    expect(calls[0][calls[0].indexOf('--session') + 1]).toBe(calls[1][calls[1].indexOf('--session') + 1]);
+    expect(calls.map((call) => call[0])).toEqual(['run', 'view', 'run', 'exec']);
+    expect(calls[1]).toEqual(expect.arrayContaining(['view', '--profile', 'qa-live', '--session']));
+    expect(new Set(calls.map((call) => call[call.indexOf('--session') + 1])).size).toBe(1);
 
     const manualResponse = await fetch(`${instance.url}/api/workspaces/${workspaceId}/manual-login`, {
       method: 'POST',
@@ -317,6 +423,9 @@ if (args[0] === 'view') {
     process.exit(130);
   });
   process.stdin.resume();
+} else if (args[0] === 'run') {
+  process.stdin.resume();
+  process.stdin.on('end', () => process.stdout.write(JSON.stringify({ ok: true })));
 } else {
   process.exit(1);
 }
@@ -352,7 +461,11 @@ if (args[0] === 'view') {
     await expect(fs.readFile(path.join(root, 'exec-cancelled'), 'utf8')).resolves.toBe('yes');
   });
 
-  it('返回历史与逐条验收详情，并允许删除报告及其产物', async () => {
+  it.each(['user', 'legacy'])('%s 存储返回历史与逐条验收详情，并允许删除报告及其产物', async (layout) => {
+    if (layout === 'legacy') {
+      vi.stubEnv('AUTO_E2E_HOME', '');
+      await fs.mkdir(path.join(root, '.auto-e2e/artifacts'));
+    }
     const runId = '20260826T120000000Z-a1b2c3d4';
     const run = {
       schemaVersion: 1, runId, project: 'demo',
@@ -364,9 +477,10 @@ if (args[0] === 'view') {
     } satisfies AcceptanceRun;
     const store = new AcceptanceHistoryStore(root);
     await store.save(run);
-    const reportDirectory = path.join(root, '.auto-e2e', 'reports', 'acceptance', 'runs', runId);
-    const latestDirectory = path.join(root, '.auto-e2e', 'reports', 'acceptance', 'latest');
-    const artifactDirectory = path.join(root, '.auto-e2e', 'artifacts', runId);
+    const config = await loadConfig({ projectRoot: root });
+    const reportDirectory = path.join(config.report.outputDirectory, 'acceptance', 'runs', runId);
+    const latestDirectory = path.join(config.report.outputDirectory, 'acceptance', 'latest');
+    const artifactDirectory = path.join(config.report.artifactDirectory, runId);
     await fs.mkdir(reportDirectory, { recursive: true });
     await fs.mkdir(latestDirectory, { recursive: true });
     await fs.mkdir(artifactDirectory, { recursive: true });
@@ -378,7 +492,37 @@ if (args[0] === 'view') {
     const list = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs`).then((response) => response.json());
     const show = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}`).then((response) => response.json());
     expect(list.runs).toHaveLength(1);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    try {
+      expect(await listCommand({ projectRoot: root, json: true })).toBe(0);
+      expect(JSON.parse(String(stdout.mock.calls.at(-1)?.[0])).runs[0].runId).toBe(runId);
+      expect(await showCommand({ projectRoot: root, json: true, runId })).toBe(0);
+      expect(JSON.parse(String(stdout.mock.calls.at(-1)?.[0])).run.runId).toBe(runId);
+      const exportPath = path.join(root, 'exports', 'report.md');
+      expect(await showCommand({ projectRoot: root, json: true, runId, format: 'markdown', output: exportPath })).toBe(0);
+      expect(JSON.parse(String(stdout.mock.calls.at(-1)?.[0]))).toEqual({
+        ok: true, runId, format: 'markdown', output: exportPath,
+      });
+      expect(await fs.readFile(exportPath, 'utf8')).toContain('# 查询');
+      expect(await showCommand({ projectRoot: root, json: true, runId, format: 'pdf' })).toBe(2);
+      expect(JSON.parse(String(stdout.mock.calls.at(-1)?.[0])).error).toContain('--format');
+      expect(await showCommand({ projectRoot: root, json: true, runId, output: exportPath })).toBe(2);
+      expect(JSON.parse(String(stdout.mock.calls.at(-1)?.[0])).error).toContain('--output');
+    } finally { stdout.mockRestore(); }
     expect(show.run.criteria[0].status).toBe('passed');
+
+    const htmlExport = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}/export?format=html`);
+    expect(htmlExport.status).toBe(200);
+    expect(htmlExport.headers.get('content-type')).toContain('text/html');
+    expect(htmlExport.headers.get('content-disposition')).toBe(`attachment; filename="auto-e2e-${runId}.html"`);
+    expect(await htmlExport.text()).toContain('<title>查询 · auto-e2e 验收报告</title>');
+
+    const markdownExport = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}/export?format=markdown`);
+    expect(markdownExport.status).toBe(200);
+    expect(markdownExport.headers.get('content-type')).toContain('text/markdown');
+    expect(markdownExport.headers.get('content-disposition')).toBe(`attachment; filename="auto-e2e-${runId}.md"`);
+    expect(await markdownExport.text()).toContain('# 查询');
+    expect((await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}/export?format=pdf`)).status).toBe(400);
 
     const deleted = await fetch(`${instance.url}/api/workspaces/${workspaceId}/runs/${runId}`, { method: 'DELETE' });
     expect(deleted.status).toBe(200);

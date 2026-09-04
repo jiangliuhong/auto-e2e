@@ -44,21 +44,29 @@ auto-e2e init
 
 ### 2. 配置被测项目
 
-进入你的 Web 项目，在根目录创建 `.auto-e2e.yaml`：
+进入你的 Web 项目并初始化工作区：
+
+```bash
+auto-e2e workspace init
+```
+
+该命令创建 `.auto-e2e/specs/` 和包含安全默认值的 `.auto-e2e/config.yaml`。重复执行会保留现有配置。默认配置如下：
 
 ```yaml
 project:
   name: my-web
-  baseUrl: http://localhost:3000
+  baseUrl: http://127.0.0.1:3000
 
 acceptance:
-  model: gpt-5.6-sol
-  profile: my-web-test
+  model: gpt-5.6-terra
+  profile: auto-e2e
   headed: false
-
-report:
-  outputDirectory: .auto-e2e/reports
-  artifactDirectory: .auto-e2e/artifacts
+  concurrency: 1
+  forbiddenActions:
+    - 删除数据
+    - 发布或部署
+    - 发起付款或购买
+    - 向外部人员发送消息
 ```
 
 运行验收前，请确保 `baseUrl` 对应的应用已经启动且可以访问。
@@ -109,11 +117,11 @@ auto-e2e run
 auto-e2e serve --open
 ```
 
-Web UI 默认运行在 `http://127.0.0.1:4317`。你可以在其中管理工作区和用例、发起验收、处理人工登录，并查看历史记录、逐步骤结果与 proof。
+Web UI 默认运行在 `http://127.0.0.1:4317`。你可以在其中管理工作区和用例、勾选本次需要执行的一个或多个用例、发起验收、处理人工登录，并查看历史记录、逐步骤结果与 proof。打开一条历史报告后，可将完整报告导出为独立 HTML 或 Markdown 文件；截图 proof 会内嵌到文件中，下载后可直接阅读。执行页默认全选全部有效用例，取消部分选择即可按需运行。
 
 ## 使用 Codex 编写验收用例
 
-auto-e2e 随包提供了项目级 Codex Skill，可以根据一段需求生成配置和 Spec Bundle：
+auto-e2e 随包提供了验收和覆盖率核对两个项目级 Codex Skill，一次安装即可使用：
 
 ```bash
 cd /path/to/my-web
@@ -124,13 +132,36 @@ auto-e2e skill install
 
 > 为“用户按订单号查询订单并核对支付状态”创建 auto-e2e 验收用例。
 
-Skill 只会安装到当前项目的 `.codex/skills/auto-e2e-acceptance`，不会修改用户级 Skill 或 MCP 配置。
+命令会将 `auto-e2e-acceptance` 和 `auto-e2e-spec-coverage` 安装到当前项目的 `.codex/skills/`，不会修改用户级 Skill 或 MCP 配置。已有 Skill 默认保留，只补装缺失的 Skill；需要用随包版本覆盖两个 Skill 时使用 `auto-e2e skill install --force`。`auto-e2e skill status` 分别显示两个 Skill 的安装状态。
+
+## 使用 Codex 核对 Spec 覆盖率
+
+随包提供的 [auto-e2e-spec-coverage](skills/auto-e2e-spec-coverage/SKILL.md) Skill 会盘点业务功能与验证点，关联已有 Spec 的结果断言，生成供项目方确认的覆盖矩阵、缺口和补充用例建议。这是静态设计覆盖核对，不代表验收运行通过。
+
+在目标项目执行安装命令，即可安装覆盖率 Skill。已经安装过验收 Skill 的项目也可以直接再次执行：
+
+```bash
+cd /path/to/my-web
+auto-e2e skill install
+auto-e2e skill status
+```
+
+`--json` 输出的 `skills` 数组逐项列出名称和路径；安装结果的 `action` 为 `installed`、`unchanged` 或 `updated`，状态结果包含各项 `installed` 和顶层的“是否全部安装”布尔值。
+
+在目标项目中调用：
+
+> 使用 $auto-e2e-spec-coverage 核对订单模块的功能与已有 Spec，生成报告让我确认。先不要修改 Spec 或执行验收。
+
+Skill 输出 `.auto-e2e/coverage/review.yaml`（可编辑的核对记录）和 `report.md`（覆盖矩阵与缺口）。项目方可以直接反馈“确认正常创建的覆盖，权限校验还缺少无权限角色的断言”，也可以按 [核对格式](skills/auto-e2e-spec-coverage/references/review-format.md) 编辑记录。没有人工确认的映射只计入候选覆盖率；范围尚未确认时比例标为暂估。后续扫描保留确认记录，并将依据发生变化的条目标记为需要复核。
+
+建议将核对文件纳入项目版本管理；项目若有 `coverage/` 忽略规则，需要检查这些文件是否被忽略。
 
 ## 常用命令
 
 | 命令 | 用途 |
 |---|---|
 | `auto-e2e init` | 初始化浏览器和模型后端 |
+| `auto-e2e workspace init` | 初始化项目的 `.auto-e2e` 工作区 |
 | `auto-e2e doctor` | 检查工具链、项目配置、用例和目标地址 |
 | `auto-e2e run` | 运行 `.auto-e2e/specs` 下的全部用例 |
 | `auto-e2e run --spec <path>` | 运行指定用例或用例目录 |
@@ -138,6 +169,7 @@ Skill 只会安装到当前项目的 `.codex/skills/auto-e2e-acceptance`，不�
 | `auto-e2e run --concurrency 4` | 并发运行多个用例 |
 | `auto-e2e list` | 列出最近的验收记录 |
 | `auto-e2e show <run-id>` | 查看一次验收详情 |
+| `auto-e2e show <run-id> --format html\|markdown [-o <path>]` | 导出可独立阅读的报告 |
 | `auto-e2e serve --open` | 启动本地 Web UI |
 | `auto-e2e skill status` | 检查当前项目的 Codex Skill |
 
@@ -145,7 +177,7 @@ Skill 只会安装到当前项目的 `.codex/skills/auto-e2e-acceptance`，不�
 
 ## 登录与敏感信息
 
-不要把密码、Token、Cookie、OAuth 信息写入 `.auto-e2e.yaml` 或 Spec Bundle。
+不要把密码、Token、Cookie、OAuth 信息写入 `.auto-e2e/config.yaml` 或 Spec Bundle。
 
 登录状态由 BetterWright Profile 管理。遇到扫码、MFA 或 Passkey 时，启动 Web UI，在“执行验收”页面选择目标 URL 和 Profile，然后点击“打开手动登录”。登录完成后，后续验收会复用同一 Profile。
 
@@ -177,17 +209,33 @@ Spec 可以通过 `files` 引用这些文件。所有路径均相对于当前用
 
 ## 验收产物
 
-默认情况下，项目内会生成：
+项目内集中保存可版本管理的配置、用例和覆盖核对记录：
 
 ```text
 .auto-e2e/
-├── specs/                 # 验收用例及其输入文件
-├── history.sqlite         # 结构化运行历史
-├── artifacts/<runId>/     # 截图、下载文件等 proof
-└── reports/acceptance/    # JSON 验收报告
+├── config.yaml
+├── specs/                  # 用例、输入文件及预期结果
+└── coverage/               # review.yaml 建议提交；report.md 可选
 ```
 
-建议把 `history.sqlite`、`artifacts` 和 `reports` 加入 `.gitignore`；是否提交 `specs` 取决于团队是否希望对验收要求进行版本管理。
+新项目的运行数据默认保存在用户目录：
+
+```text
+~/.auto-e2e/
+├── workspaces.json
+└── projects/<workspaceId>/
+    ├── history.sqlite
+    ├── artifacts/<runId>/
+    └── reports/acceptance/
+```
+
+`workspaceId` 是项目真实绝对路径的 SHA-256 摘要前 16 位；同名项目及不同 worktree 分别存储，符号链接指向同一项目时共享数据。`AUTO_E2E_HOME` 可替换用户根目录，显式配置的存储路径优先。
+
+配置加载顺序为 `--config <path>` → `.auto-e2e/config.yaml` → 旧 `.auto-e2e.yaml` → 默认配置；两份文件不合并。配置中的相对路径始终以项目根目录为基准。默认生成的配置省略存储路径。
+
+未设置 `AUTO_E2E_HOME` 且已有项目内运行数据时，继续使用原来的整套存储位置，不自动移动或删除历史。保留 `.auto-e2e/history.sqlite*`、`.auto-e2e/artifacts/` 和 `.auto-e2e/reports/` 的 Git 忽略规则兼容旧项目；根目录测试覆盖率使用 `/coverage/`，避免误忽略 `.auto-e2e/coverage/`。
+
+迁移步骤和 CI 存储配置见 [配置与存储迁移](docs/storage-layout.md)。
 
 ## CI 集成
 
@@ -204,6 +252,7 @@ auto-e2e 使用固定退出码，方便流水线判断结果：
 
 ## 更多文档
 
+- [从 git push 到覆盖率核对、Runner 验收与报告](docs/push-to-report.md)
 - [完整使用说明](docs/usage.md)
 - [Spec Bundle v2 格式](docs/spec-bundle-v2.md)
 - [步骤与结果校验](docs/parameter-step-result-validation.md)

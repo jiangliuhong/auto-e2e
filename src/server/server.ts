@@ -13,11 +13,15 @@ import { executeAcceptance } from '../acceptance/acceptance-runner.js';
 import type { AcceptanceRun } from '../domain/acceptance-run.js';
 import { AcceptanceHistoryStore } from '../acceptance/history-store.js';
 import { validateTargetUrl } from '../acceptance/preflight.js';
-import { CONFIG_FILENAME, loadConfig } from '../config/config-loader.js';
+import {
+  CONFIG_FILENAME, LEGACY_CONFIG_FILENAME, loadConfig, readConfigFile, resolveConfigFile,
+  type LoadConfigOptions,
+} from '../config/config-loader.js';
 import {
   AcceptanceConfigSchema,
   AutoE2EConfigSchema,
   type AutoE2EConfig,
+  type ProjectConfigFile,
 } from '../config/config-schema.js';
 import {
   ACCEPTANCE_SPEC_DIRECTORY,
@@ -28,11 +32,15 @@ import {
 import { runDoctor, type DoctorScope } from '../doctor/doctor.js';
 import { AutoE2EError, ExitCode } from '../runtime/exit-codes.js';
 import { Logger } from '../runtime/logger.js';
+import { workspaceId as getWorkspaceId } from '../config/paths.js';
 import { WorkspaceRegistry } from '../workspace/workspace-registry.js';
 import { renderDashboardHtml } from './web-ui.js';
+import { fitEmbeddedLiveView } from './live-view-html.js';
+import { exportAcceptanceReport, type ReportExportFormat } from './report-export.js';
 
 export interface AutoE2EServerOptions {
   projectRoot?: string;
+  configPath?: string;
   registerProjectRoot?: boolean;
   registryPath?: string;
   port?: number;
@@ -79,7 +87,10 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
   const host = options.host ?? '127.0.0.1';
   const requestedPort = options.port ?? 4317;
   const logger = options.logger ?? new Logger({ level: 'info' });
-  const registry = new WorkspaceRegistry(options.registryPath);
+  const configPathForWorkspace = (projectRoot: string) =>
+    options.projectRoot && getWorkspaceId(options.projectRoot) === getWorkspaceId(projectRoot)
+      ? options.configPath : undefined;
+  const registry = new WorkspaceRegistry(options.registryPath, configPathForWorkspace);
   const manualLoginSessions = new Map<string, BetterWrightManualLoginSession>();
   const runLiveViewSessions = new Map<string, BetterWrightLiveViewSession>();
   const runJobs = new Map<string, RunJob>();
@@ -115,7 +126,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
       }
 
       if (method === 'GET' && url.pathname === '/api/status') {
-        sendJson(response, 200, { ok: true, version: '0.3.0', workspaceCount: (await registry.list()).length });
+        sendJson(response, 200, { ok: true, version: '0.3.1', workspaceCount: (await registry.list()).length });
         return;
       }
 
@@ -147,11 +158,14 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           return;
         }
         const workspace = await registry.get(workspaceId);
+        const configOptions: LoadConfigOptions = {
+          projectRoot: workspace.path, configPath: configPathForWorkspace(workspace.path),
+        };
         if (method === 'POST' && action === 'doctor') {
           const body = await parseJsonBody(request);
           const scope = doctorScopeValue(body.scope);
           const report = await runDoctor({
-            projectRoot: workspace.path,
+            ...configOptions,
             scope,
             betterwrightBinary: options.betterwrightBinary,
             logger,
@@ -159,11 +173,12 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           sendJson(response, 200, { ok: report.ok, report });
           return;
         }
-        const config = await loadConfig({ projectRoot: workspace.path });
+        const config = await loadConfig(configOptions);
         const store = new AcceptanceHistoryStore(workspace.path, config.acceptance.databasePath);
 
         if (method === 'GET' && !action) {
-          sendJson(response, 200, { ok: true, workspace, config });
+          sendJson(response, 200, { ok: true, workspace, config,
+            configFile: path.relative(workspace.path, await resolveConfigFile(configOptions)) });
           return;
         }
         if (method === 'PUT' && action === 'config') {
@@ -172,8 +187,8 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           if (!parsed.success) {
             throw new AutoE2EError(ExitCode.Blocked, parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '));
           }
-          await writeConfigFile(workspace.path, parsed.data);
-          sendJson(response, 200, { ok: true, config: parsed.data });
+          await writeConfigFile(configOptions, parsed.data, config);
+          sendJson(response, 200, { ok: true, config: await loadConfig(configOptions) });
           return;
         }
         if (method === 'GET' && action === 'task-specs') {
@@ -280,7 +295,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
             ok: true,
             viewerUrl,
             targetUrl,
-            profile: profileResult.data,
+            profile: manualLogin.profile,
           });
           return;
         }
@@ -292,6 +307,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
             return;
           }
           const body = await parseJsonBody(request);
+          const specs = await selectedSpecReferences(workspace.path, body.specs);
           const job: RunJob = {
             id: randomUUID(),
             workspaceId,
@@ -308,6 +324,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
               workspacePath: workspace.path,
               config,
               body,
+              specs,
               logger,
               betterwrightBinary: options.betterwrightBinary,
               manualLoginSessions,
@@ -353,6 +370,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
             projectRoot: workspace.path,
             config,
             spec: stringValue(body.spec),
+            specs: await selectedSpecReferences(workspace.path, body.specs),
             url: stringValue(body.url),
             profile: stringValue(body.profile),
             model: stringValue(body.model),
@@ -365,16 +383,45 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
           sendJson(response, 200, { ok: run.status === 'passed', run });
           return;
         }
-        const runMatch = action.match(/^runs\/([^/]+)$/);
+        const runMatch = action.match(/^runs\/([^/]+)(?:\/(export))?$/);
         if (runMatch?.[1]) {
           const runId = decodeURIComponent(runMatch[1]);
-          if (method === 'GET') {
+          if (method === 'GET' && runMatch[2] === 'export') {
+            const requestedFormat = url.searchParams.get('format');
+            const format: ReportExportFormat | null = requestedFormat === 'html' ? 'html'
+              : requestedFormat === 'markdown' || requestedFormat === 'md' ? 'markdown' : null;
+            if (!format) {
+              sendJson(response, 400, { ok: false, error: '导出格式必须是 html 或 markdown' });
+              return;
+            }
             const run = await store.get(runId);
-            if (!run) sendJson(response, 404, { ok: false, error: '未找到运行记录' });
-            else sendJson(response, 200, { ok: true, run });
+            if (!run) {
+              sendJson(response, 404, { ok: false, error: '未找到运行记录' });
+              return;
+            }
+            const content = await exportAcceptanceReport(run, format, {
+              projectRoot: workspace.path,
+              artifactDirectory: config.report.artifactDirectory,
+            });
+            const extension = format === 'html' ? 'html' : 'md';
+            sendDownload(
+              response,
+              200,
+              content,
+              format === 'html' ? 'text/html; charset=utf-8' : 'text/markdown; charset=utf-8',
+              `auto-e2e-${run.runId}.${extension}`,
+            );
             return;
           }
-          if (method === 'DELETE') {
+          if (method === 'GET' && !runMatch[2]) {
+            const run = await store.get(runId);
+            if (!run) sendJson(response, 404, { ok: false, error: '未找到运行记录' });
+            else sendJson(response, 200, { ok: true, run, artifactRoots: [
+              config.report.artifactDirectory, path.relative(workspace.path, config.report.artifactDirectory),
+            ] });
+            return;
+          }
+          if (method === 'DELETE' && !runMatch[2]) {
             const run = await store.get(runId);
             if (!run) {
               sendJson(response, 404, { ok: false, error: '未找到运行记录' });
@@ -471,6 +518,7 @@ async function runAcceptanceJob(input: {
   workspacePath: string;
   config: AutoE2EConfig;
   body: Record<string, unknown>;
+  specs?: string[];
   logger: Logger;
   betterwrightBinary?: string;
   manualLoginSessions: Map<string, BetterWrightManualLoginSession>;
@@ -488,6 +536,7 @@ async function runAcceptanceJob(input: {
       projectRoot: input.workspacePath,
       config: input.config,
       spec: stringValue(input.body.spec),
+      specs: input.specs,
       url: stringValue(input.body.url),
       profile: stringValue(input.body.profile),
       model: stringValue(input.body.model),
@@ -620,7 +669,7 @@ async function proxyLiveViewPage(response: http.ServerResponse, upstream: URL): 
     sendJson(response, 502, { ok: false, error: `Live View 返回 HTTP ${upstreamResponse.status}` });
     return;
   }
-  const body = Buffer.from(await upstreamResponse.arrayBuffer());
+  const body = fitEmbeddedLiveView(await upstreamResponse.text());
   response.writeHead(200, {
     'Content-Type': upstreamResponse.headers.get('content-type') ?? 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -745,6 +794,28 @@ async function listTaskSpecs(projectRoot: string): Promise<TaskSpecListItem[]> {
         : parsed.errors.join('; '),
     };
   }));
+}
+
+async function selectedSpecReferences(
+  projectRoot: string,
+  value: unknown,
+): Promise<string[] | undefined> {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string')) {
+    throw new AutoE2EError(ExitCode.Blocked, 'specs 必须是至少包含一个用例路径的数组');
+  }
+  const requested = [...new Set(value)];
+  if (requested.length !== value.length) {
+    throw new AutoE2EError(ExitCode.Blocked, '不能重复选择同一个验收用例');
+  }
+  const available = await listTaskSpecs(projectRoot);
+  const byReference = new Map(available.map((item) => [item.reference, item]));
+  for (const reference of requested) {
+    const item = byReference.get(reference);
+    if (!item) throw new AutoE2EError(ExitCode.Blocked, `验收用例不存在：${reference}`);
+    if (item.error) throw new AutoE2EError(ExitCode.Blocked, `验收用例格式有误：${reference}：${item.error}`);
+  }
+  return requested;
 }
 
 async function discoverEditableTaskSpecs(root: string): Promise<string[]> {
@@ -930,15 +1001,26 @@ async function resolveWritableBundleResource(bundleDirectory: string, resourcePa
   return target;
 }
 
-async function writeConfigFile(projectRoot: string, config: AutoE2EConfig): Promise<void> {
-  const target = path.join(projectRoot, CONFIG_FILENAME);
+async function writeConfigFile(
+  options: LoadConfigOptions, config: ProjectConfigFile, current: AutoE2EConfig,
+): Promise<void> {
+  const target = await resolveConfigFile(options);
+  const original = await readConfigFile(options);
+  // UI sends the resolved config back. Preserve omitted defaults and portable custom paths.
+  if (config.acceptance.databasePath === current.acceptance.databasePath) {
+    config.acceptance.databasePath = original.acceptance.databasePath;
+  }
+  for (const key of ['outputDirectory', 'artifactDirectory'] as const) {
+    if (config.report[key] === current.report[key]) config.report[key] = original.report[key];
+  }
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(temporary, `${YAML.stringify(config)}\n`, 'utf8');
   await fs.rename(temporary, target);
 }
 
 async function hasWorkspaceMarker(projectRoot: string): Promise<boolean> {
-  for (const marker of ['.auto-e2e.yaml', ACCEPTANCE_SPEC_DIRECTORY]) {
+  for (const marker of [CONFIG_FILENAME, LEGACY_CONFIG_FILENAME, ACCEPTANCE_SPEC_DIRECTORY]) {
     try {
       await fs.access(path.join(projectRoot, marker));
       return true;
@@ -954,6 +1036,22 @@ function sendJson(response: http.ServerResponse, status: number, value: unknown)
 function send(response: http.ServerResponse, status: number, body: string | Buffer, type: string): void {
   response.writeHead(status, {
     'Content-Type': type,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  response.end(body);
+}
+
+function sendDownload(
+  response: http.ServerResponse,
+  status: number,
+  body: string | Buffer,
+  type: string,
+  filename: string,
+): void {
+  response.writeHead(status, {
+    'Content-Type': type,
+    'Content-Disposition': `attachment; filename="${filename}"`,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
   });
@@ -1042,7 +1140,12 @@ async function serveArtifact(
     return;
   }
   try {
-    const content = await fs.readFile(file);
+    const [realRoot, realFile] = await Promise.all([fs.realpath(root), fs.realpath(file)]);
+    if (!realFile.startsWith(`${realRoot}${path.sep}`)) {
+      sendJson(response, 400, { ok: false, error: '非法 artifact 路径' });
+      return;
+    }
+    const content = await fs.readFile(realFile);
     const extension = path.extname(file).toLowerCase();
     const type = extension === '.png' ? 'image/png'
       : extension === '.jpg' || extension === '.jpeg' ? 'image/jpeg'

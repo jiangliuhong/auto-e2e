@@ -7,6 +7,7 @@ import { getDefaultLogger } from './logger.js';
 
 export interface RunOptions {
   projectRoot?: string;
+  config?: string;
   json?: boolean;
   nonInteractive?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'silent';

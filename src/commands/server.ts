@@ -19,7 +19,8 @@ export async function serveCommand(opts: ServeOptions): Promise<number> {
     const host = opts.host ?? '127.0.0.1';
     const instance = createAutoE2EServer({
       projectRoot: opts.workspace ? path.resolve(ctx.projectRoot, opts.workspace) : ctx.projectRoot,
-      registerProjectRoot: Boolean(opts.workspace),
+      registerProjectRoot: Boolean(opts.workspace || opts.config),
+      configPath: opts.config,
       port,
       host,
       logger: ctx.logger,

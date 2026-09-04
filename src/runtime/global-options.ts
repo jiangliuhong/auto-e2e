@@ -21,6 +21,7 @@ export function mergeGlobalOpts(
     ? 'warn'
     : (logLevel as RunOptions['logLevel'] | undefined);
   return {
+    config: rootOpts['config'] as string | undefined,
     projectRoot: rootOpts['projectRoot'] as string | undefined,
     json: (rootOpts['json'] as boolean) || (subOpts['json'] as boolean) || false,
     nonInteractive:

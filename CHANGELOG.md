@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
+
+- 新增 `auto-e2e workspace init`，创建带安全默认值的 `.auto-e2e/config.yaml` 和 `.auto-e2e/specs/`。
+- 项目配置统一为 `.auto-e2e/config.yaml`，兼容旧配置并支持全局 `--config` 参数。
+- 新项目运行数据默认存入 `~/.auto-e2e/projects/<workspaceId>/`，支持 `AUTO_E2E_HOME` 和旧项目存储兼容。
+- 同步 Web UI 配置保存、截图读取、Git 忽略规则、Skill 模板及迁移文档。
+- Web UI 执行页支持勾选一个或多个用例按需运行，服务端校验选择范围后仅执行所选用例。
 
 - 新增 GitHub Actions CI 与 tag 触发的 npm OIDC 自动发布，校验版本、lockfile 和 main 归属，并跳过已发布版本。
 - npm 包名改为 `@jarome/auto-e2e`，避免与 npmjs 上已有的非关联包重名。

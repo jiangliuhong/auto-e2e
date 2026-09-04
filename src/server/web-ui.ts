@@ -726,6 +726,28 @@ export function renderDashboardHtml(): string {
     }
     .run-scope svg { color: var(--accent); flex-shrink: 0; margin-top: 1px; }
     .run-scope strong { color: var(--text); }
+    .run-spec-picker {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--panel-elevated);
+    }
+    .run-spec-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .run-spec-item:last-child { border-bottom: 0; }
+    .run-spec-item:hover { background: var(--panel-card); }
+    .run-spec-item input { margin-top: 2px; }
+    .run-spec-item-copy { min-width: 0; font-size: 12px; line-height: 1.4; }
+    .run-spec-item-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .run-spec-item-copy span { color: var(--text-muted); }
+    .run-spec-item.invalid { cursor: not-allowed; opacity: .62; }
     .manual-login-panel { align-items: center; }
     .manual-login-copy { flex: 1; min-width: 0; }
     .manual-login-panel .button { flex-shrink: 0; }
@@ -747,9 +769,10 @@ export function renderDashboardHtml(): string {
     }
     .live-view-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .live-view-title strong { font-size: 12px; }
+    .live-view-header > .row { flex-shrink: 0; }
     .live-view-status { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .live-view-body { position: relative; height: min(58vh, 620px); min-height: 360px; background: #090a0f; }
-    .live-view-frame { width: 100%; height: 100%; border: 0; background: #fff; }
+    .live-view-body { position: relative; aspect-ratio: 16 / 11; min-height: 360px; background: #090a0f; }
+    .live-view-frame { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border: 0; background: #fff; }
     .live-view-empty {
       position: absolute;
       inset: 0;
@@ -765,6 +788,9 @@ export function renderDashboardHtml(): string {
       pointer-events: none;
     }
     .live-view-card.collapsed .live-view-body { display: none; }
+    .live-view-card:fullscreen { display: flex; flex-direction: column; width: 100%; height: 100%; border: 0; border-radius: 0; }
+    .live-view-card:fullscreen .live-view-header { flex-shrink: 0; }
+    .live-view-card:fullscreen .live-view-body { display: block; flex: 1; aspect-ratio: auto; height: auto; min-height: 0; }
     .checkbox-label {
       display: inline-flex;
       align-items: center;
@@ -1447,7 +1473,7 @@ export function renderDashboardHtml(): string {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
         </div>
         <div>
-          <h1>auto-e2e <span class="version-pill">v0.3.0</span></h1>
+          <h1>auto-e2e <span class="version-pill">v0.3.1</span></h1>
           <div class="sub">BetterWright 验收工作区</div>
         </div>
       </div>
@@ -1606,7 +1632,7 @@ export function renderDashboardHtml(): string {
         <!-- Run Acceptance -->
         <section class="page-view hidden" data-page-view="run">
           <div class="page-heading">
-            <div><h2>执行验收</h2><p>确认目标环境与执行参数，然后运行当前工作区的全部用例。</p></div>
+            <div><h2>执行验收</h2><p>选择本次需要验证的用例，并确认目标环境与执行参数。</p></div>
           </div>
           <div class="card">
             <div class="card-header">
@@ -1619,7 +1645,17 @@ export function renderDashboardHtml(): string {
             <div class="stack">
               <div class="run-scope">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                <div><strong id="run-spec-count">0 个用例</strong><br>保存当前编辑内容后，按目录顺序运行 specs 中的全部 <code>**/spec.json</code> Bundle。</div>
+                <div><strong id="run-spec-count">0 / 0 个用例已选择</strong><br><span id="run-spec-summary">默认执行全部有效用例，也可以按需取消选择。</span></div>
+              </div>
+              <div class="form-field">
+                <div class="row between">
+                  <div class="label">执行范围</div>
+                  <div class="row">
+                    <button class="button sm" type="button" id="run-spec-all">全选</button>
+                    <button class="button sm" type="button" id="run-spec-none">清空</button>
+                  </div>
+                </div>
+                <div class="run-spec-picker" id="run-spec-picker"></div>
               </div>
               <div class="form-field">
                 <div class="label">目标 URL</div>
@@ -1682,6 +1718,7 @@ export function renderDashboardHtml(): string {
                   </div>
                   <div class="row">
                     <button class="button sm" id="live-view-reload" disabled>刷新画面</button>
+                    <button class="button sm" id="live-view-fullscreen" aria-pressed="false" aria-controls="live-view-card">全屏</button>
                     <button class="button sm" id="live-view-toggle">收起</button>
                   </div>
                 </div>
@@ -1732,7 +1769,11 @@ export function renderDashboardHtml(): string {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
                 验收详情
               </div>
-              <button class="button danger sm" id="delete-run" disabled title="删除当前运行报告及其截图证据">删除报告</button>
+              <div class="row" style="gap:6px">
+                <button class="button sm" id="export-run-html" disabled title="导出包含截图证据的独立 HTML 文件">导出 HTML</button>
+                <button class="button sm" id="export-run-markdown" disabled title="导出包含截图证据的 Markdown 文件">导出 Markdown</button>
+                <button class="button danger sm" id="delete-run" disabled title="删除当前运行报告及其截图证据">删除报告</button>
+              </div>
             </div>
             <div id="detail">
               <div class="empty-state" style="padding:40px 10px">
@@ -1845,7 +1886,7 @@ export function renderDashboardHtml(): string {
               <div class="label">本地项目根目录绝对路径 <span style="color:var(--bad)">*</span></div>
               <input class="input" id="add-ws-path" placeholder="例如：/Users/username/projects/my-web-app">
               <div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4">
-                请输入本地项目的根目录绝对路径。系统会自动读取或创建 <code>.auto-e2e.yaml</code> 配置文件与验收需求。
+                请输入本地项目的根目录绝对路径。系统会读取项目配置和验收需求，默认配置位置为 <code>.auto-e2e/config.yaml</code>。
               </div>
             </div>
             <div class="row" style="justify-content:flex-end;margin-top:8px">
@@ -1900,7 +1941,7 @@ export function renderDashboardHtml(): string {
             </div>
             <div class="row between" style="margin-top:10px;padding-top:14px;border-top:1px solid var(--border)">
               <div style="font-size:12px;color:var(--text-muted)">
-                保存将直接更新该项目根目录的 <code>.auto-e2e.yaml</code>
+                保存将更新 <code id="edit-ws-config-file">.auto-e2e/config.yaml</code>
               </div>
               <div class="row">
                 <button class="button sm" id="btn-reload-ws-config">重新加载</button>
@@ -1925,7 +1966,7 @@ export function renderDashboardHtml(): string {
   </div>
 
   <script>
-    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list', currentPage: 'overview', runEvents: null, runWatchStop: null, liveViewerUrl: null, doctorReport: null };
+    const state = { workspaces: [], selected: null, config: null, specs: [], selectedSpec: null, runSpecReferences: [], resources: [], runs: [], selectedRunId: null, filter: 'all', editingWorkspaceId: null, modalTab: 'list', currentPage: 'overview', runEvents: null, runWatchStop: null, liveViewerUrl: null, doctorReport: null };
     const el = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
@@ -2288,6 +2329,8 @@ export function renderDashboardHtml(): string {
       const changed = state.selected !== id;
       if (changed) clearLiveViewer();
       if (changed) {
+        state.specs = [];
+        state.runSpecReferences = [];
         state.doctorReport = null;
         el('doctor-result').innerHTML = '<div class="empty-state" style="padding:34px 10px"><div class="empty-icon">🩺</div><div style="font-size:14px;font-weight:600;color:var(--text)">尚未运行诊断</div><p class="sub" style="font-size:12px">选择检查范围后开始诊断。</p></div>';
         el('run-doctor').textContent = '开始诊断';
@@ -2337,6 +2380,7 @@ export function renderDashboardHtml(): string {
         el('edit-ws-path').value = data.workspace.path;
         el('edit-ws-name').value = conf.project.name || '';
         el('edit-ws-url').value = conf.project.baseUrl || '';
+        el('edit-ws-config-file').textContent = data.configFile;
         el('edit-ws-model').value = conf.acceptance.model || '';
         el('edit-ws-profile').value = conf.acceptance.profile || '';
         el('edit-ws-concurrency').value = conf.acceptance.concurrency || 1;
@@ -2474,10 +2518,17 @@ export function renderDashboardHtml(): string {
     }
 
     async function loadSpecs(preferredFile) {
+      const previousRunnable = state.specs.filter((item) => !item.error).map((item) => item.reference);
+      const previouslySelected = new Set(state.runSpecReferences);
+      const previouslyAllSelected = previousRunnable.length === 0 || previousRunnable.every((reference) => previouslySelected.has(reference));
       const data = await api('/api/workspaces/' + encodeURIComponent(state.selected) + '/task-specs');
       state.specs = data.specs || [];
       el('spec-count').textContent = state.specs.length + ' 个文件';
-      el('run-spec-count').textContent = (state.specs.length || 1) + ' 个用例';
+      const runnable = state.specs.filter((item) => !item.error).map((item) => item.reference);
+      state.runSpecReferences = previouslyAllSelected
+        ? runnable
+        : runnable.filter((reference) => previouslySelected.has(reference));
+      renderRunSpecPicker();
       const available = state.specs.map((item) => item.fileName);
       state.selectedSpec = preferredFile && available.includes(preferredFile)
         ? preferredFile
@@ -2502,6 +2553,51 @@ export function renderDashboardHtml(): string {
       select.value = state.selectedSpec;
       await loadSelectedSpec();
       renderOverview();
+    }
+
+    function renderRunSpecPicker() {
+      const container = el('run-spec-picker');
+      container.replaceChildren();
+      if (!state.specs.length) {
+        container.innerHTML = '<div class="empty-state" style="padding:18px"><span class="sub">暂无可执行用例</span></div>';
+      } else {
+        const selected = new Set(state.runSpecReferences);
+        state.specs.forEach((item) => {
+          const label = document.createElement('label');
+          label.className = 'run-spec-item' + (item.error ? ' invalid' : '');
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = item.reference;
+          checkbox.checked = selected.has(item.reference);
+          checkbox.disabled = Boolean(item.error);
+          checkbox.onchange = () => {
+            const next = new Set(state.runSpecReferences);
+            if (checkbox.checked) next.add(item.reference); else next.delete(item.reference);
+            state.runSpecReferences = state.specs.map((spec) => spec.reference).filter((reference) => next.has(reference));
+            updateRunScope();
+          };
+          const copy = document.createElement('div');
+          copy.className = 'run-spec-item-copy';
+          const title = document.createElement('strong');
+          title.textContent = (item.taskId ? item.taskId + ' · ' : '') + item.title;
+          const detail = document.createElement('span');
+          detail.textContent = item.error ? '格式有误：' + item.error : item.reference;
+          copy.append(title, detail);
+          label.append(checkbox, copy);
+          container.appendChild(label);
+        });
+      }
+      updateRunScope();
+    }
+
+    function updateRunScope() {
+      const runnableCount = state.specs.filter((item) => !item.error).length;
+      const selectedCount = state.runSpecReferences.length;
+      el('run-spec-count').textContent = selectedCount + ' / ' + runnableCount + ' 个用例已选择';
+      el('run-spec-summary').textContent = selectedCount === runnableCount && runnableCount > 0
+        ? '将按目录顺序运行全部有效用例。'
+        : selectedCount > 0 ? '本次只运行选中的用例。' : '请至少选择一个有效用例。';
+      if (!state.runEvents) setRunControlsIdle();
     }
 
     async function loadSelectedSpec() {
@@ -2689,6 +2785,8 @@ export function renderDashboardHtml(): string {
 
     function clearRunDetail() {
       el('delete-run').disabled = true;
+      el('export-run-html').disabled = true;
+      el('export-run-markdown').disabled = true;
       el('detail').innerHTML = '<div class="empty-state" style="padding:40px 10px">' +
         '<div class="empty-icon" style="width:44px;height:44px;font-size:18px">🔍</div>' +
         '<div style="font-size:14px;font-weight:600;color:var(--text)">选择运行记录</div>' +
@@ -2752,15 +2850,21 @@ export function renderDashboardHtml(): string {
       const run = data.run;
       const detailContainer = el('detail');
       el('delete-run').disabled = false;
+      el('export-run-html').disabled = false;
+      el('export-run-markdown').disabled = false;
 
       function renderCriteria(items) {
         return (items || []).map((item) => {
         let proofHtml = '';
         if (item.proof) {
+          const roots = data.artifactRoots.map((root) => root.replaceAll(String.fromCharCode(92), '/') + '/');
+          const proof = item.proof.replaceAll(String.fromCharCode(92), '/');
           const marker = '.auto-e2e/artifacts/';
-          const index = item.proof.indexOf(marker);
-          const artifactPath = index >= 0 ? item.proof.slice(index + marker.length) : item.proof;
-          const imgSrc = '/api/workspaces/' + encodeURIComponent(state.selected) + '/artifacts/' + encodeURI(artifactPath);
+          const index = proof.indexOf(marker);
+          const root = roots.find((candidate) => proof.startsWith(candidate));
+          const artifactPath = root ? proof.slice(root.length)
+            : index >= 0 ? proof.slice(index + marker.length) : proof;
+          const imgSrc = '/api/workspaces/' + encodeURIComponent(state.selected) + '/artifacts/' + artifactPath.split('/').map(encodeURIComponent).join('/');
           proofHtml = '<div style="margin-top:6px">' +
             '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">截图证据 (点击放大)：</div>' +
             '<img class="criterion-proof-img" alt="AC Proof" src="' + imgSrc + '" onclick="openLightbox(\\'' + esc(imgSrc) + '\\', \\'' + esc(item.id + ': ' + item.description) + '\\')">' +
@@ -2916,6 +3020,17 @@ export function renderDashboardHtml(): string {
       }
     }
 
+    function exportRun(format) {
+      const runId = state.selectedRunId;
+      if (!runId || !state.selected) return;
+      const link = document.createElement('a');
+      link.href = '/api/workspaces/' + encodeURIComponent(state.selected) + '/runs/' + encodeURIComponent(runId) + '/export?format=' + encodeURIComponent(format);
+      link.download = '';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
     function openLightbox(src, caption) {
       el('lightbox-img').src = src;
       el('lightbox-caption').textContent = caption;
@@ -2932,7 +3047,14 @@ export function renderDashboardHtml(): string {
     });
 
     async function runAcceptance() {
-      if (!await saveSpec()) return;
+      const editedSpec = state.specs.find((item) => item.fileName === state.selectedSpec);
+      const shouldSaveEditedSpec = !editedSpec || state.runSpecReferences.includes(editedSpec.reference);
+      if (shouldSaveEditedSpec && !await saveSpec()) return;
+      const selectedSpecs = [...state.runSpecReferences];
+      if (!selectedSpecs.length) {
+        toast('请至少选择一个有效用例', true);
+        return;
+      }
       const concurrency = Number(el('run-concurrency').value);
       if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) {
         toast('并发用例数必须是 1 到 32 之间的整数', true);
@@ -2940,7 +3062,7 @@ export function renderDashboardHtml(): string {
       }
       const output = el('run-output');
       const workspaceId = state.selected;
-      setRunControlsRunning(state.specs.length);
+      setRunControlsRunning(selectedSpecs.length);
       output.textContent = '正在创建验收任务...';
 
       try {
@@ -2951,6 +3073,7 @@ export function renderDashboardHtml(): string {
             url: el('run-url').value,
             profile: el('run-profile').value,
             model: el('run-model').value,
+            specs: selectedSpecs,
             concurrency,
             headed: el('run-headed').checked,
             fresh: el('run-fresh').checked
@@ -2989,6 +3112,42 @@ export function renderDashboardHtml(): string {
         button.disabled = false;
         button.textContent = '打开手动登录';
       }
+    }
+
+    function initLiveViewFullscreen() {
+      const card = el('live-view-card');
+      const button = el('live-view-fullscreen');
+      const toggle = el('live-view-toggle');
+      const sync = () => {
+        const active = document.fullscreenElement === card;
+        button.textContent = active ? '退出全屏' : '全屏';
+        button.setAttribute('aria-pressed', String(active));
+        toggle.disabled = active;
+      };
+      button.disabled = !document.fullscreenEnabled || typeof card.requestFullscreen !== 'function';
+      if (button.disabled) button.title = '当前浏览器不支持全屏';
+      document.addEventListener('fullscreenchange', sync);
+      button.onclick = async () => {
+        try {
+          if (document.fullscreenElement === card) {
+            await document.exitFullscreen();
+          } else {
+            await card.requestFullscreen();
+            card.classList.remove('collapsed');
+            toggle.textContent = '收起';
+          }
+        } catch (error) {
+          toast('切换全屏失败：' + error.message, true);
+        }
+        sync();
+      };
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && document.fullscreenElement === card) {
+          event.preventDefault();
+          button.click();
+        }
+      });
+      sync();
     }
 
     function setLiveViewStatus(message, badgeClass, badgeText) {
@@ -3037,8 +3196,12 @@ export function renderDashboardHtml(): string {
 
     function setRunControlsIdle() {
       const runButton = el('run-acceptance');
-      runButton.disabled = false;
-      runButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> 运行全部用例';
+      const selectedCount = state.runSpecReferences.length;
+      const runnableCount = state.specs.filter((item) => !item.error).length;
+      runButton.disabled = selectedCount === 0;
+      const label = selectedCount === runnableCount && runnableCount > 0
+        ? '运行全部用例' : '运行选中的 ' + selectedCount + ' 个用例';
+      runButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> ' + label;
       el('manual-login').disabled = false;
     }
 
@@ -3179,6 +3342,8 @@ export function renderDashboardHtml(): string {
     el('new-spec').onclick = createSpec;
     el('delete-spec').onclick = deleteSpec;
     el('delete-run').onclick = deleteRun;
+    el('export-run-html').onclick = () => exportRun('html');
+    el('export-run-markdown').onclick = () => exportRun('markdown');
     el('upload-resources').onclick = () => el('resource-files').click();
     el('resource-files').onchange = (event) => uploadBundleResources(Array.from(event.target.files || []));
     el('spec-file').onchange = async (event) => {
@@ -3189,7 +3354,16 @@ export function renderDashboardHtml(): string {
     el('refresh-runs-top').onclick = loadRuns;
     el('manual-login').onclick = openManualLogin;
     el('run-acceptance').onclick = runAcceptance;
+    el('run-spec-all').onclick = () => {
+      state.runSpecReferences = state.specs.filter((item) => !item.error).map((item) => item.reference);
+      renderRunSpecPicker();
+    };
+    el('run-spec-none').onclick = () => {
+      state.runSpecReferences = [];
+      renderRunSpecPicker();
+    };
     el('run-doctor').onclick = runDoctorCheck;
+    initLiveViewFullscreen();
     el('live-view-reload').onclick = () => {
       if (!state.liveViewerUrl) return;
       const frame = el('live-view-frame');

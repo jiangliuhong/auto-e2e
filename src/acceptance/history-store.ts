@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { AcceptanceRunSchema, type AcceptanceRun } from '../domain/acceptance-run.js';
+import { defaultStoragePaths, resolveProjectPath } from '../config/paths.js';
 
 export interface RunListItem {
   runId: string;
@@ -23,8 +24,8 @@ export interface RunListItem {
 export class AcceptanceHistoryStore {
   readonly databasePath: string;
 
-  constructor(projectRoot: string, databasePath = '.auto-e2e/history.sqlite') {
-    this.databasePath = path.resolve(projectRoot, databasePath);
+  constructor(projectRoot: string, databasePath = defaultStoragePaths(projectRoot).databasePath) {
+    this.databasePath = resolveProjectPath(projectRoot, databasePath);
   }
 
   async initialize(): Promise<void> {

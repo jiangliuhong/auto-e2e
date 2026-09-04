@@ -1,6 +1,6 @@
 {
   "name": "@jarome/auto-e2e",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "基于 BetterWright 的本地需求验收、proof 与历史报告 CLI",
   "repository": {
     "type": "git",

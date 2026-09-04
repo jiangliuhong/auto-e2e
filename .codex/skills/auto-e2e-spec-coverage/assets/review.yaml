@@ -1,0 +1,16 @@
+# 空白核对模板。由 Skill 填入实际资料与候选，项目方确认前不得改为 confirmed。
+schemaVersion: 1
+project: null
+scannedAt: null
+scope:
+  description: null
+  status: unconfirmed # unconfirmed | confirmed | needs-review
+  sourceRoots: []
+  specRoots: []
+  limitations: []
+  inventoryDigest: null
+  confirmations: []
+sources: []
+specs: []
+features: []
+changes: []

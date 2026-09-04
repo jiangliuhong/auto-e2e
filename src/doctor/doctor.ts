@@ -5,7 +5,7 @@ import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { BetterWrightCli, type BetterWrightDoctorReport } from '../acceptance/betterwright-cli.js';
 import { validateFileInputs, validateTargetUrl } from '../acceptance/preflight.js';
 import { loadAcceptanceRequirements, type LoadedRequirementSet } from '../acceptance/requirement-loader.js';
-import { CONFIG_FILENAME, loadConfig } from '../config/config-loader.js';
+import { CONFIG_FILENAME, loadConfig, resolveConfigFile } from '../config/config-loader.js';
 import type { AutoE2EConfig } from '../config/config-schema.js';
 import { ACCEPTANCE_SPEC_DIRECTORY, isAcceptanceSpecFileName } from '../domain/task-spec.js';
 import type { Logger } from '../runtime/logger.js';
@@ -35,6 +35,7 @@ export interface DoctorReport {
 
 export interface RunDoctorOptions {
   projectRoot: string;
+  configPath?: string;
   scope?: DoctorScope;
   betterwrightBinary?: string;
   logger?: Logger;
@@ -143,19 +144,20 @@ async function runProjectChecks(options: RunDoctorOptions): Promise<DoctorCheck[
   }
 
   let config: AutoE2EConfig;
-  const configPath = path.join(options.projectRoot, CONFIG_FILENAME);
-  const configExists = await exists(configPath);
+  let configPath = options.configPath ?? CONFIG_FILENAME;
   try {
-    config = await loadConfig({ projectRoot: options.projectRoot });
+    configPath = await resolveConfigFile(options);
+    const configExists = await exists(configPath);
+    config = await loadConfig(options);
     checks.push(makeCheck(
       'project.config',
       '项目配置',
       configExists ? 'pass' : 'warn',
-      configExists ? `${CONFIG_FILENAME} 校验通过` : `未找到 ${CONFIG_FILENAME}，已使用默认配置`,
+      configExists ? `${configPath} 校验通过` : `未找到 ${CONFIG_FILENAME}，已使用默认配置`,
       configExists ? undefined : `在项目根目录创建 ${CONFIG_FILENAME}`,
     ));
   } catch (error) {
-    checks.push(makeCheck('project.config', '项目配置', 'fail', errorMessage(error), `修复 ${CONFIG_FILENAME} 后重试`));
+    checks.push(makeCheck('project.config', '项目配置', 'fail', errorMessage(error), `修复 ${configPath} 后重试`));
     checks.push(...skippedProjectChecks('项目配置无效'));
     return checks;
   }

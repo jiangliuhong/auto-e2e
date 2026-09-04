@@ -20,6 +20,7 @@ export async function doctorCommand(opts: DoctorOptions): Promise<number> {
     const report = await runDoctor({
       projectRoot: ctx.projectRoot,
       scope,
+      configPath: opts.config,
       betterwrightBinary: opts.betterwrightBinary,
       logger: ctx.logger,
     });

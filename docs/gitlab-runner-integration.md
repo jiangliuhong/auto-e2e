@@ -2,7 +2,7 @@
 
 > 状态：设计方案，尚未全部实现。
 >
-> 本文中的 `AUTO_E2E_STORAGE_ROOT`、`run --ci-report-directory`、JUnit 导出和验收覆盖率展示属于待实现能力；现有的 `doctor`、`run`、结构化结果、退出码、SQLite 历史和 `serve` 报告能力可以直接复用。
+> 本文中的 `run --ci-report-directory`、JUnit 导出和验收覆盖率展示属于待实现能力；现有的 `AUTO_E2E_HOME`、`doctor`、`run`、结构化结果、退出码、SQLite 历史和 `serve` 报告能力可以直接复用。
 
 ## 1. 目标与约束
 
@@ -195,36 +195,28 @@ GitLab Pipeline 是任务队列的唯一权威来源，不在 auto-e2e 内再实
 
 ## 4. auto-e2e 需要新增的能力
 
-### 4.1 独立于 checkout 的持久化存储
+### 4.1 独立于 checkout 的持久化存储（已实现）
 
-Runner 可能清理 `$CI_PROJECT_DIR`，因此 SQLite、报告和 proof 不能只保存在项目 checkout 下。新增环境变量：
+默认运行数据位于 `~/.auto-e2e/projects/<workspaceId>/`，可用环境变量修改用户根目录：
 
 ```bash
-AUTO_E2E_STORAGE_ROOT=/Users/runner/auto-e2e-data
+AUTO_E2E_HOME=/Users/runner/auto-e2e-data
 ```
 
-启用后按项目隔离：
-
 ```text
-$AUTO_E2E_STORAGE_ROOT/
-└── <project-name>/
+$AUTO_E2E_HOME/
+├── workspaces.json
+└── projects/<workspaceId>/
     ├── history.sqlite
-    ├── reports/
-    │   └── acceptance/
-    │       ├── latest/result.json
-    │       └── runs/<runId>/result.json
+    ├── reports/acceptance/
     └── artifacts/<runId>/
 ```
 
-约束：
-
-- `<project-name>` 来自通过校验的 `project.name`。
-- 禁止空值、绝对路径片段、`..`、目录分隔符和路径穿越。
-- 同一 `serve` 实例发现重复项目名指向不同工作区时必须报错，禁止混写。
-- 路径优先级为：CLI 显式参数 > `AUTO_E2E_STORAGE_ROOT` > `.auto-e2e.yaml` 现有路径。
-- 未设置环境变量时维持现有 `.auto-e2e/history.sqlite`、reports 和 artifacts 行为。
-- Runner 与常驻 `serve` 必须配置相同的存储根目录。
-- SQLite 继续使用事务；`serve` 查询不得阻塞 Runner 保存完整运行结果。
+- ID 来自项目真实绝对路径的 SHA-256 摘要前 16 位；同名项目及 worktree 隔离。
+- 显式配置的存储路径优先；省略的路径使用 `AUTO_E2E_HOME` 下的项目目录。
+- 没有环境变量覆盖、但已有项目内运行数据时，整套旧默认存储位置保持不变。
+- Runner 与常驻 `serve` 必须使用相同的存储根目录和项目真实路径；不同 checkout 路径会有不同 ID。需要跨 checkout 聚合时显式配置共同存储路径，并确保代表同一项目。
+- 不自动搬运历史；迁移及 CI 产物收集见 [配置与存储迁移](storage-layout.md)。
 
 ### 4.2 单次 CI 报告导出
 
@@ -332,7 +324,7 @@ GitLab Test Report 用来显示用例明细，不能把验收覆盖率伪装成�
 
 ## 6. GitLab CI 示例
 
-当前 v0.3.0 可以先使用退出码和 Job 日志完成最小集成：
+当前 v0.3.1 可以先使用退出码和 Job 日志完成最小集成：
 
 ```yaml
 stages:
@@ -370,7 +362,7 @@ auto-e2e-acceptance:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master" && $CI_PIPELINE_SOURCE == "push"'
   variables:
-    AUTO_E2E_STORAGE_ROOT: "/Users/runner/auto-e2e-data"
+    AUTO_E2E_HOME: "/Users/runner/auto-e2e-data"
   script:
     - auto-e2e --project-root "$CI_PROJECT_DIR" doctor --project --json
     - auto-e2e --project-root "$CI_PROJECT_DIR" run --ci-report-directory .auto-e2e-ci

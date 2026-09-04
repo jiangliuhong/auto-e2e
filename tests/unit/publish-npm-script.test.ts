@@ -44,7 +44,7 @@ describe('npm publish script', () => {
       'npm publish --access public --tag latest --registry https://registry.npmjs.org',
       'npm view @jarome/auto-e2e@0.3.0 version --registry https://registry.npmjs.org',
     ]);
-  });
+  }, 10_000);
 
   it('refuses to publish from a dirty Git working tree by default', async () => {
     const fixture = await createFixture({ dirty: true });

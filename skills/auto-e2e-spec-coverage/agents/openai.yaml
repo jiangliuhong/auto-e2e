@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-e2e Spec 覆盖核对"
+  short_description: "核对业务功能与 Spec 断言覆盖，生成供项目方确认的覆盖矩阵与缺口清单"
+  default_prompt: "使用 $auto-e2e-spec-coverage 核对当前项目的功能与 Spec 覆盖情况，生成报告供项目方确认。"

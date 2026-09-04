@@ -54,6 +54,27 @@ describe('acceptance requirement loader', () => {
     }), 'utf8');
     await expect(loadAcceptanceRequirements({ projectRoot: root })).rejects.toThrow(/未找到验收用例/);
   });
+
+  it('只加载本次选中的多个用例并保留选择顺序', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-selected-specs-'));
+    const directory = path.join(root, '.auto-e2e', 'specs');
+    await mkdir(directory, { recursive: true });
+    for (const [fileName, taskId] of [['one.spec.json', 'ONE'], ['two.spec.json', 'TWO'], ['three.spec.json', 'THREE']]) {
+      await writeFile(path.join(directory, fileName), JSON.stringify({
+        taskId, title: taskId, requirement: `运行 ${taskId}`, acceptanceCriteria: ['完成'],
+      }), 'utf8');
+    }
+
+    const loaded = await loadAcceptanceRequirements({
+      projectRoot: root,
+      specs: ['.auto-e2e/specs/three.spec.json', '.auto-e2e/specs/one.spec.json'],
+    });
+
+    expect(loaded.suite).toBe(true);
+    expect(loaded.requirements.map((item) => item.caseId)).toEqual(['THREE', 'ONE']);
+    expect(loaded.requirements.map((item) => item.caseId)).not.toContain('TWO');
+    await expect(loadAcceptanceRequirements({ projectRoot: root, specs: [] })).rejects.toThrow(/至少选择一个/);
+  });
 });
 
 describe('BetterWright acceptance output', () => {
@@ -69,7 +90,7 @@ describe('BetterWright acceptance output', () => {
     )).toThrow(/未完整覆盖/);
   });
 
-  it('拒绝乱序或跳过后继续执行的 Bundle 步骤', () => {
+  it('拒绝乱序的 Bundle 步骤', () => {
     const steps = [
       { id: 'STEP-01', instruction: '第一步', expected: '完成一' },
       { id: 'STEP-02', instruction: '第二步', expected: '完成二' },
@@ -101,14 +122,26 @@ describe('BetterWright acceptance output', () => {
     }), steps, results)).toThrow(/不能在前置步骤失败或阻塞前跳过/);
   });
 
-  it('业务步骤失败后强制所有结果为 blocked', () => {
-    const steps = [{ id: 'STEP-01', instruction: '第一步', expected: '完成一' }];
+  it('业务步骤阻塞后保留独立后续步骤和可观察结果', () => {
+    const steps = [
+      { id: 'STEP-01', instruction: '读取独立事实', expected: '事实可用' },
+      { id: 'STEP-02', instruction: '查看页面', expected: '页面可见' },
+    ];
     const results = [{ id: 'RESULT-01', name: '结果', actual: '页面', expected: 'ok', match: 'equals' as const }];
-    expect(() => parseBundleAcceptanceAnswer(JSON.stringify({
-      summary: '失败',
-      steps: [{ id: 'STEP-01', status: 'failed', actual: '失败', proof: null, error: '失败' }],
+    expect(parseBundleAcceptanceAnswer(JSON.stringify({
+      summary: '部分完成',
+      steps: [
+        { id: 'STEP-01', status: 'blocked', actual: '缺少独立事实', proof: null, error: '缺少前提' },
+        { id: 'STEP-02', status: 'passed', actual: '页面可见', proof: null, error: null },
+      ],
       results: [{ id: 'RESULT-01', status: 'observed', actual: 'ok', proof: null, error: null }],
-    }), steps, results)).toThrow(/必须为 blocked/);
+    }), steps, results)).toMatchObject({
+      steps: [
+        { id: 'STEP-01', status: 'blocked' },
+        { id: 'STEP-02', status: 'passed' },
+      ],
+      results: [{ id: 'RESULT-01', status: 'observed', actual: 'ok' }],
+    });
   });
 
   it('Proof 只允许来自授权 artifact 目录且必须是图片', async () => {
@@ -150,7 +183,7 @@ cat >/dev/null
 printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"完成\\",\\"steps\\":[{\\"id\\":\\"STEP-01\\",\\"status\\":\\"passed\\",\\"actual\\":\\"结果可见\\",\\"proof\\":null,\\"error\\":null}],\\"results\\":[{\\"id\\":\\"RESULT-01\\",\\"status\\":\\"observed\\",\\"actual\\":100.05,\\"proof\\":null,\\"error\\":null}]}","steps":1,"proof":null}'
 `, 'utf8');
     await chmod(fakeCli, 0o700);
-    const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo'), betterwrightBinary: fakeCli });
+    const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo', root), betterwrightBinary: fakeCli });
     expect(run.status).toBe('passed');
     expect(run.resultAssertions?.[0]).toEqual(expect.objectContaining({
       status: 'passed', actual: 100.05, difference: expect.closeTo(0.05),
@@ -188,7 +221,7 @@ printf '%s' '${envelope}'
     const previousHome = process.env.BETTERWRIGHT_HOME;
     process.env.BETTERWRIGHT_HOME = betterWrightHome;
     try {
-      const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo'), betterwrightBinary: fakeCli });
+      const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo', root), betterwrightBinary: fakeCli });
       expect(run.proof).toContain('proof.png');
       expect(run.workflowSteps?.[0]?.proof).toBeNull();
       expect(run.resultAssertions?.[0]?.proof).toBeNull();
@@ -226,7 +259,7 @@ printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"通过\\",\\"steps\\":[{\\"i
     const previousHome = process.env.BETTERWRIGHT_HOME;
     process.env.BETTERWRIGHT_HOME = path.join(root, 'betterwright-home');
     try {
-      const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo'), betterwrightBinary: fakeCli });
+      const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo', root), betterwrightBinary: fakeCli });
       expect(run.status).toBe('passed');
       expect(run.source.digest).toMatch(/^sha256:/);
       expect(run.workflowSteps?.[0]?.id).toBe('STEP-01');
@@ -291,7 +324,7 @@ printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"全部通过\\",\\"criteria\
     try {
       const run = await executeAcceptance({
         projectRoot: root,
-        config: defaultConfig('demo'),
+        config: defaultConfig('demo', root),
         betterwrightBinary: fakeCli,
       });
       expect(run.status).toBe('passed');
@@ -324,7 +357,7 @@ printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"全部通过\\",\\"criteria\
     }), 'utf8');
     await expect(executeAcceptance({
       projectRoot: root,
-      config: defaultConfig('demo'),
+      config: defaultConfig('demo', root),
       betterwrightBinary: path.join(root, 'unused'),
     })).rejects.toThrow(/输入文件不能位于项目目录之外/);
   });
@@ -344,7 +377,7 @@ read_prompt=$(cat)
 printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"全部通过\\",\\"criteria\\":[{\\"id\\":\\"AC-01\\",\\"description\\":\\"显示查询结果\\",\\"status\\":\\"passed\\",\\"actual\\":\\"页面已显示\\",\\"proof\\":null}]}","steps":2,"proof":null}'
 `, 'utf8');
     await chmod(fakeCli, 0o700);
-    const config = defaultConfig();
+    const config = defaultConfig('web-app', root);
     config.project.name = 'demo';
     const run = await executeAcceptance({
       projectRoot: root,
@@ -364,7 +397,7 @@ printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"全部通过\\",\\"criteria\
     if (!stored || stored.schemaVersion !== 1) throw new Error('expected stored single run');
     expect(stored.criteria[0]?.status).toBe('passed');
     const snapshot = await readFile(
-      path.join(root, '.auto-e2e', 'reports', 'acceptance', 'latest', 'result.json'),
+      path.join(defaultConfig('demo', root).report.outputDirectory, 'acceptance', 'latest', 'result.json'),
       'utf8',
     );
     expect(JSON.parse(snapshot).runId).toBe(run.runId);
@@ -384,7 +417,7 @@ cat >/dev/null
 printf '%s' '{"ok":true,"answer":"not-json","steps":1,"proof":null}'
 `, 'utf8');
     await chmod(fakeCli, 0o700);
-    const config = defaultConfig('demo');
+    const config = defaultConfig('demo', root);
     const run = await executeAcceptance({ projectRoot: root, config, betterwrightBinary: fakeCli });
     expect(run.status).toBe('blocked');
     expect(run.error).toContain('不是合法验收 JSON');
@@ -415,7 +448,7 @@ printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"通过\\",\\"criteria\\":[{\
     let maxActiveCases = 0;
     const run = await executeAcceptance({
       projectRoot: root,
-      config: defaultConfig('demo'),
+      config: defaultConfig('demo', root),
       betterwrightBinary: fakeCli,
       session: 'suite-session',
       concurrency: 2,
@@ -446,7 +479,7 @@ printf '%s' '{"ok":true,"answer":"{\\"summary\\":\\"通过\\",\\"criteria\\":[{\
     expect(listed.criteriaCount).toBe(2);
     expect((await store.get(run.runId))?.schemaVersion).toBe(2);
     const snapshot = JSON.parse(await readFile(
-      path.join(root, '.auto-e2e', 'reports', 'acceptance', 'latest', 'result.json'),
+      path.join(defaultConfig('demo', root).report.outputDirectory, 'acceptance', 'latest', 'result.json'),
       'utf8',
     ));
     expect(snapshot.cases).toHaveLength(2);

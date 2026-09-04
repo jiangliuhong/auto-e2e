@@ -76,10 +76,13 @@ export type BetterWrightExecEnvelope = z.infer<typeof BetterWrightExecEnvelopeSc
 
 export interface BetterWrightManualLoginSession {
   viewerUrl: string;
+  profile: string;
   close(): Promise<void>;
 }
 
 export type BetterWrightLiveViewSession = BetterWrightManualLoginSession;
+
+const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 
 export interface BetterWrightCliOptions {
   binary?: string;
@@ -93,7 +96,8 @@ export class BetterWrightCli {
   private readonly prefixArgs: string[];
   private readonly cwd: string;
   private readonly logger?: Logger;
-  private readonly env?: NodeJS.ProcessEnv;
+  private readonly env: NodeJS.ProcessEnv;
+  private readonly compatibleProfiles = new Map<string, string>();
 
   constructor(options: BetterWrightCliOptions) {
     const explicit = options.binary ?? process.env.AUTO_E2E_BETTERWRIGHT_BIN;
@@ -107,7 +111,13 @@ export class BetterWrightCli {
     }
     this.cwd = options.cwd;
     this.logger = options.logger;
-    this.env = options.env;
+    const env = options.env ?? process.env;
+    // Native-sized contexts otherwise launch at Chromium's small 800px default.
+    // This also gives newly opened tabs a desktop-sized native window.
+    this.env = {
+      ...env,
+      BETTERWRIGHT_CHROMIUM_ARGS: [env.BETTERWRIGHT_CHROMIUM_ARGS, '--window-size=1440,1000'].filter(Boolean).join(' '),
+    };
   }
 
   async doctor(): Promise<BetterWrightDoctorReport> {
@@ -166,13 +176,14 @@ export class BetterWrightCli {
     fresh?: boolean;
     signal?: AbortSignal;
   }): Promise<BetterWrightExecEnvelope> {
+    const profile = await this.prepareDesktopViewport(input);
     const args = [
       'exec',
       '--stdin',
       '--model',
       input.model,
       '--profile',
-      input.profile,
+      profile,
       '--session',
       input.session,
     ];
@@ -210,20 +221,14 @@ export class BetterWrightCli {
     session: string;
     headed?: boolean;
   }): Promise<BetterWrightManualLoginSession> {
-    const commonArgs = [
-      '--profile',
-      input.profile,
-      '--session',
-      input.session,
-    ];
-    if (input.headed) commonArgs.push('--headed');
-
     const viewer = await this.startLiveView({
       profile: input.profile,
       session: input.session,
       headed: input.headed,
     });
     try {
+      const commonArgs = ['--profile', viewer.profile, '--session', input.session];
+      if (input.headed) commonArgs.push('--headed');
       const script = [
         `const targetUrl = ${JSON.stringify(input.targetUrl)};`,
         'await page.goto(targetUrl);',
@@ -256,26 +261,82 @@ export class BetterWrightCli {
     }
   }
 
-  startLiveView(input: {
+  async startLiveView(input: {
     profile: string;
     session: string;
     headed?: boolean;
     signal?: AbortSignal;
   }): Promise<BetterWrightLiveViewSession> {
+    // A reused daemon does not reread launch flags. Resize the session's actual
+    // pages before streaming; resizing the iframe cannot change their layout.
+    const profile = await this.prepareDesktopViewport(input);
     const args = [
       'view',
       '--profile',
-      input.profile,
+      profile,
       '--session',
       input.session,
       '--expose',
       'local',
     ];
     if (input.headed) args.push('--headed');
-    return this.startViewer(args, input.signal);
+    return this.startViewer(args, profile, input.signal);
   }
 
-  private startViewer(args: string[], signal?: AbortSignal): Promise<BetterWrightManualLoginSession> {
+  private async prepareDesktopViewport(input: {
+    profile: string;
+    session: string;
+    headed?: boolean;
+    signal?: AbortSignal;
+  }): Promise<string> {
+    const requestedProfile = input.profile;
+    const profile = this.compatibleProfiles.get(requestedProfile) ?? requestedProfile;
+    try {
+      await this.setDesktopViewport({ ...input, profile });
+      return profile;
+    } catch (error) {
+      if (profile !== requestedProfile || !isNewerChromiumProfileError(error)) throw error;
+      // A custom executable may be newer than the managed version that
+      // BetterWright uses for its profile compatibility check. Keep the
+      // parent environment untouched and use the matching managed browser.
+      delete this.env.BETTERWRIGHT_CHROMIUM_PATH;
+      delete this.env.BETTERWRIGHT_CHROMIUM_ROOT;
+      const compatibleProfile = `${requestedProfile}-bw151-managed`;
+      await this.setDesktopViewport({ ...input, profile: compatibleProfile });
+      this.compatibleProfiles.set(requestedProfile, compatibleProfile);
+      this.logger?.warn(
+        `Profile ${requestedProfile} 由更高版本 Chromium 创建；已保留原目录，改用 BetterWright 托管浏览器和兼容 Profile ${compatibleProfile}。`,
+      );
+      return compatibleProfile;
+    }
+  }
+
+  private async setDesktopViewport(input: {
+    profile: string;
+    session: string;
+    headed?: boolean;
+    signal?: AbortSignal;
+  }): Promise<void> {
+    const args = ['run', '-', '--profile', input.profile, '--session', input.session];
+    if (input.headed) args.push('--headed');
+    const script = [
+      `const viewport = ${JSON.stringify(DESKTOP_VIEWPORT)};`,
+      'for (const tab of pages) await tab.setViewportSize(viewport);',
+      'return { viewport: page.viewportSize() };',
+    ].join('\n');
+    const result = await this.execute(args, script, input.signal);
+    let raw: unknown;
+    try { raw = JSON.parse(result.stdout); } catch { raw = null; }
+    const parsed = BetterWrightRunEnvelopeSchema.safeParse(raw);
+    if (result.exitCode !== 0 || !parsed.success || !parsed.data.ok) {
+      const detail = parsed.success
+        ? parsed.data.error || result.stderr.trim() || '浏览器初始化失败'
+        : result.stderr.trim() || result.stdout.trim() || '无效的浏览器初始化结果';
+      throw new AutoE2EError(ExitCode.Blocked, `无法设置 BetterWright 桌面浏览器视口：${detail}`);
+    }
+  }
+
+  private startViewer(args: string[], profile: string, signal?: AbortSignal): Promise<BetterWrightManualLoginSession> {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
         reject(new AutoE2EError(ExitCode.Blocked, 'BetterWright Live View 已取消'));
@@ -330,7 +391,7 @@ export class BetterWrightCli {
         settled = true;
         clearTimeout(timer);
         signal?.removeEventListener('abort', onAbort);
-        resolve({ viewerUrl, close });
+        resolve({ viewerUrl, profile, close });
       };
       const timer = setTimeout(() => {
         fail(new AutoE2EError(
@@ -429,6 +490,11 @@ export class BetterWrightCli {
   }
 }
 
+function isNewerChromiumProfileError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /profile at .* was upgraded by a newer Chromium/i.test(message);
+}
+
 function resolveInstalledCli(): string | undefined {
   try {
     const require = createRequire(import.meta.url);
@@ -503,7 +569,7 @@ export function buildAcceptancePrompt(input: {
     `执行规则：\n` +
     `1. 如有测试输入文件，必须把上面的精确绝对路径传给页面文件上传控件；不得自行构造或替换文件。\n` +
     `2. 对 Spec Bundle，input 资源只能在对应步骤使用；expected 资源只能用于结果比较，不得上传到被测系统。\n` +
-    `3. 必须按业务步骤的声明顺序执行；当前步骤完成状态成立后才能进入下一步。前一步未通过时，不得继续产生副作用。\n` +
+    `3. 必须按业务步骤的声明顺序执行。某一步失败或阻塞后，仍应继续执行不依赖该步骤且不会产生副作用的后续步骤；只有确实依赖前置失败或阻塞步骤而无法执行时，才返回 skipped。\n` +
     `4. 完成全部页面操作后，再读取页面真实可见的输出；数字按给定绝对误差比较。\n` +
     `5. 每条验收标准都必须得到 passed、failed 或 blocked 结论，不能遗漏。\n` +
     `6. 只根据页面真实可见状态判断，不得把 URL、猜测或未完成操作当成证明。\n` +
@@ -537,25 +603,13 @@ export function parseBundleAcceptanceAnswer(
   }
   assertOrderedIds('步骤', expectedSteps.map((item) => item.id), parsed.data.steps.map((item) => item.id));
   assertOrderedIds('结果', expectedResults.map((item) => item.id), parsed.data.results.map((item) => item.id));
-  let stopped = false;
+  let hasFailedOrBlockedStep = false;
   parsed.data.steps.forEach((step) => {
-    if (!stopped && step.status === 'skipped') {
+    if (!hasFailedOrBlockedStep && step.status === 'skipped') {
       throw new AutoE2EError(ExitCode.Blocked, `步骤 ${step.id} 不能在前置步骤失败或阻塞前跳过`);
     }
-    if (stopped && step.status !== 'skipped') {
-      throw new AutoE2EError(ExitCode.Blocked, `前置步骤未通过后，步骤 ${step.id} 必须为 skipped`);
-    }
-    if (step.status === 'failed' || step.status === 'blocked') stopped = true;
+    if (step.status === 'failed' || step.status === 'blocked') hasFailedOrBlockedStep = true;
   });
-  if (stopped) {
-    const completedResult = parsed.data.results.find((result) => result.status !== 'blocked');
-    if (completedResult) {
-      throw new AutoE2EError(
-        ExitCode.Blocked,
-        `业务步骤未全部通过时，结果 ${completedResult.id} 必须为 blocked`,
-      );
-    }
-  }
   return parsed.data;
 }
 

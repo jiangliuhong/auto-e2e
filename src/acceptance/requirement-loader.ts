@@ -55,7 +55,30 @@ export async function loadAcceptanceRequirement(input: {
 export async function loadAcceptanceRequirements(input: {
   projectRoot: string;
   spec?: string;
+  specs?: string[];
 }): Promise<LoadedRequirementSet> {
+  if (input.specs !== undefined) {
+    if (input.spec) {
+      throw new AutoE2EError(ExitCode.Blocked, 'spec 与 specs 不能同时指定');
+    }
+    if (input.specs.length === 0) {
+      throw new AutoE2EError(ExitCode.Blocked, '至少选择一个验收用例');
+    }
+    const selections = await Promise.all(
+      input.specs.map((selection) => loadTaskSpecs(input.projectRoot, selection)),
+    );
+    const requirements = selections.flatMap((selection) => selection.requirements);
+    const ids = requirements.map((item) => item.caseId);
+    if (new Set(ids).size !== ids.length) {
+      throw new AutoE2EError(ExitCode.Blocked, '选中的验收用例生成了重复的 taskId');
+    }
+    return {
+      suite: requirements.length > 1,
+      title: requirements.length > 1 ? `${requirements.length} 个验收用例` : requirements[0]!.source.title,
+      reference: selections.map((selection) => selection.reference).join(', '),
+      requirements,
+    };
+  }
   return loadTaskSpecs(input.projectRoot, input.spec);
 }
 

@@ -158,6 +158,23 @@ describe('doctor project checks', () => {
     expect((await fs.readdir(root)).some((name) => name.startsWith('.auto-e2e-doctor-'))).toBe(false);
   });
 
+
+  it('识别新配置位置并让显式配置优先，诊断显示实际文件路径', async () => {
+    const root = await configuredProject();
+    await fs.mkdir(path.join(root, '.auto-e2e'), { recursive: true });
+    await fs.rename(path.join(root, '.auto-e2e.yaml'), path.join(root, '.auto-e2e/config.yaml'));
+    const report = await runDoctor({ projectRoot: root, scope: 'project', fetch: okFetch });
+    expect(report.groups.project?.checks.find((check) => check.id === 'project.config')).toMatchObject({
+      status: 'pass', detail: `${path.join(root, '.auto-e2e/config.yaml')} 校验通过`,
+    });
+    await fs.writeFile(path.join(root, 'invalid.yaml'), 'project: [invalid');
+    const explicit = await runDoctor({ projectRoot: root, configPath: 'invalid.yaml', scope: 'project', fetch: okFetch });
+    expect(explicit.ok).toBe(false);
+    expect(explicit.groups.project?.checks.find((check) => check.id === 'project.config')).toMatchObject({
+      status: 'fail', fix: `修复 ${path.join(root, 'invalid.yaml')} 后重试`,
+    });
+  });
+
   it('配置失败后跳过依赖检查', async () => {
     const root = await temporaryRoot();
     await fs.writeFile(path.join(root, '.auto-e2e.yaml'), 'project: [invalid\n');

@@ -34,6 +34,7 @@ export interface ExecuteAcceptanceOptions {
   projectRoot: string;
   config: AutoE2EConfig;
   spec?: string;
+  specs?: string[];
   url?: string;
   profile?: string;
   model?: string;
