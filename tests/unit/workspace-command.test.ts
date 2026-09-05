@@ -4,6 +4,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import YAML from 'yaml';
 import { workspaceInitCommand } from '../../src/commands/workspace.js';
+import { AutoE2EConfigSchema } from '../../src/config/config-schema.js';
+import { readConfigFile } from '../../src/config/config-loader.js';
+import { configTemplate } from '../../src/config/config-template.js';
 
 const roots: string[] = [];
 
@@ -19,7 +22,9 @@ describe('workspace init command', () => {
 
     expect(await workspaceInitCommand({ projectRoot: root })).toBe(0);
     expect((await fs.stat(path.join(root, '.auto-e2e/specs'))).isDirectory()).toBe(true);
-    const config = YAML.parse(await fs.readFile(path.join(root, '.auto-e2e/config.yaml'), 'utf8'));
+    const source = await fs.readFile(path.join(root, '.auto-e2e/config.yaml'), 'utf8');
+    expect(YAML.parse(source)).toEqual({ project: { name: 'my-web', baseUrl: 'http://127.0.0.1:3000' } });
+    const config = await readConfigFile({ projectRoot: root });
     expect(config).toEqual({
       project: { name: 'my-web', baseUrl: 'http://127.0.0.1:3000' },
       acceptance: {
@@ -29,9 +34,28 @@ describe('workspace init command', () => {
         concurrency: 1,
         forbiddenActions: ['删除数据', '发布或部署', '发起付款或购买', '向外部人员发送消息'],
       },
+      report: {},
     });
     expect(config.acceptance.databasePath).toBeUndefined();
-    expect(config.report).toBeUndefined();
+    // 取消所有示例配置行的注释后，必须仍是合法配置且覆盖 schema 全部字段。
+    const enabled = YAML.parse(source.replace(/^# (?=\S+:|  )/gm, ''));
+    expect(AutoE2EConfigSchema.safeParse(enabled).success).toBe(true);
+    expect(Object.keys(enabled).sort()).toEqual(Object.keys(AutoE2EConfigSchema.shape).sort());
+    for (const section of ['project', 'acceptance', 'report'] as const) {
+      const schema = section === 'project' ? AutoE2EConfigSchema.shape.project
+        : AutoE2EConfigSchema.shape[section].removeDefault();
+      expect(Object.keys(enabled[section]).sort()).toEqual(Object.keys(schema.shape).sort());
+      for (const key of Object.keys(enabled[section])) {
+        expect(source).toMatch(new RegExp(`  # [^\\n]+\\n(?:# )?  ${key}:`));
+      }
+    }
+    expect(enabled.acceptance).toEqual({ ...config.acceptance, databasePath: '.auto-e2e/history.sqlite' });
+    expect(enabled.report).toEqual({ outputDirectory: '.auto-e2e/reports', artifactDirectory: '.auto-e2e/artifacts' });
+  });
+
+  it('项目名称中的 YAML 特殊字符不会改变配置结构', () => {
+    const name = 'web: # demo';
+    expect(AutoE2EConfigSchema.parse(YAML.parse(configTemplate(name))).project.name).toBe(name);
   });
 
   it('重复执行时保留现有配置并返回 unchanged', async () => {
