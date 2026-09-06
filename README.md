@@ -50,23 +50,45 @@ auto-e2e init
 auto-e2e workspace init
 ```
 
-该命令创建 `.auto-e2e/specs/` 和包含安全默认值的 `.auto-e2e/config.yaml`。重复执行会保留现有配置。默认配置如下：
+该命令创建 `.auto-e2e/specs/` 和列出全部配置项及中文说明的 `.auto-e2e/config.yaml`。重复执行会保留现有配置。有默认值的可选项先以注释展示，按需同时取消分组行和配置项的注释。生成的配置如下：
 
 ```yaml
+# auto-e2e 项目配置
+# 已注释的配置按需取消注释；除存储路径示例外，展示的均为默认值。
+# 启用可选配置时，请同时取消对应分组行的注释。
+# 相对路径以项目根目录为基准，也支持绝对路径和 ~/。
+# 存储默认位于 ~/.auto-e2e/projects/<工作区 ID>/，可通过 AUTO_E2E_HOME 修改根目录。
+# 未设置 AUTO_E2E_HOME 且项目已有历史数据库、reports 或 artifacts 时，沿用项目 .auto-e2e/。
+
 project:
+  # 项目名称，默认使用当前项目目录名。
   name: my-web
+  # 被测应用地址；运行验收前请启动应用并修改为实际地址。
   baseUrl: http://127.0.0.1:3000
 
-acceptance:
-  model: gpt-5.6-terra
-  profile: auto-e2e
-  headed: false
-  concurrency: 1
-  forbiddenActions:
-    - 删除数据
-    - 发布或部署
-    - 发起付款或购买
-    - 向外部人员发送消息
+# acceptance:
+  # BetterWright 使用的模型。
+#   model: gpt-5.6-terra
+  # BetterWright 浏览器配置名称，用于复用登录状态。
+#   profile: auto-e2e
+  # 是否显示浏览器窗口：true 显示，false 无头运行。
+#   headed: false
+  # 验收并发数，整数，范围 1–32。
+#   concurrency: 1
+  # 禁止执行的操作；自定义列表会替换默认列表。
+#   forbiddenActions:
+#     - 删除数据
+#     - 发布或部署
+#     - 发起付款或购买
+#     - 向外部人员发送消息
+  # SQLite 历史数据库路径；下方为自定义示例，省略时自动选择存储位置。
+#   databasePath: .auto-e2e/history.sqlite
+
+# report:
+  # 报告输出目录；下方为自定义示例，省略时自动选择存储位置。
+#   outputDirectory: .auto-e2e/reports
+  # 截图等验收产物目录；下方为自定义示例，省略时自动选择存储位置。
+#   artifactDirectory: .auto-e2e/artifacts
 ```
 
 运行验收前，请确保 `baseUrl` 对应的应用已经启动且可以访问。

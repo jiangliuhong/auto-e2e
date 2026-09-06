@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- 工作区初始化生成包含完整字段说明的配置模板，并补充配置文档。
+- 兼容 BetterWright 截图返回的 artifact 对象，将有效的 path 规范化为步骤和结果的 proof 路径。
+- 明确截图证据的返回格式，并增加有效路径与无效证据的回归测试。
+
 ## 0.3.1
 
 - 新增 `auto-e2e workspace init`，创建带安全默认值的 `.auto-e2e/config.yaml` 和 `.auto-e2e/specs/`。

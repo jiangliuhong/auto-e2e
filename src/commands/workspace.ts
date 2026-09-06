@@ -1,8 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Command } from 'commander';
-import YAML from 'yaml';
-import { AutoE2EConfigSchema } from '../config/config-schema.js';
+import { configTemplate } from '../config/config-template.js';
 import { CONFIG_FILENAME, LEGACY_CONFIG_FILENAME } from '../config/config-loader.js';
 import { ACCEPTANCE_SPEC_DIRECTORY } from '../domain/task-spec.js';
 import { AutoE2EError, ExitCode } from '../runtime/exit-codes.js';
@@ -39,14 +38,7 @@ export async function workspaceInitCommand(opts: RunOptions): Promise<number> {
     await fs.mkdir(specsDirectory, { recursive: true });
     if (!configExists) {
       const projectName = path.basename(projectRoot) || 'web-app';
-      const defaults = AutoE2EConfigSchema.parse({
-        project: { name: projectName, baseUrl: 'http://127.0.0.1:3000' },
-      });
-      const portableConfig = {
-        project: defaults.project,
-        acceptance: defaults.acceptance,
-      };
-      await fs.writeFile(configFile, YAML.stringify(portableConfig), { encoding: 'utf8', flag: 'wx' });
+      await fs.writeFile(configFile, configTemplate(projectName), { encoding: 'utf8', flag: 'wx' });
     }
 
     const relativeConfig = path.relative(projectRoot, configFile);

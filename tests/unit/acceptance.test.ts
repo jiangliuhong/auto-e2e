@@ -78,6 +78,36 @@ describe('acceptance requirement loader', () => {
 });
 
 describe('BetterWright acceptance output', () => {
+  const proofSteps = [{ id: 'STEP-01', instruction: '搜索', expected: '结果可见' }];
+  const proofResults = [{ id: 'RESULT-01', name: '关键词', actual: '搜索框', expected: 'chatgpt', match: 'equals' as const }];
+  function bundleWithProof(proof: unknown) {
+    return JSON.stringify({
+      summary: '搜索完成',
+      steps: [{ id: 'STEP-01', status: 'passed', actual: '结果可见', proof }],
+      results: [{ id: 'RESULT-01', status: 'observed', actual: 'chatgpt', proof }],
+    });
+  }
+
+  it.each([
+    { path: '/tmp/search.png' },
+    { kind: 'proof', path: '/tmp/search.png', media: 'MEDIA:/tmp/search.png' },
+    '/tmp/search.png',
+    null,
+    undefined,
+  ])('规范化 Bundle 步骤和结果的截图证据：%j', (proof) => {
+    const answer = parseBundleAcceptanceAnswer(bundleWithProof(proof), proofSteps, proofResults);
+    const expected = proof == null ? null : '/tmp/search.png';
+    expect(answer.steps[0]?.proof).toBe(expected);
+    expect(answer.results[0]?.proof).toBe(expected);
+  });
+
+  it.each([{}, { path: '' }, { path: 123 }, { media: 'MEDIA:/tmp/search.png' }, [], 123])(
+    '拒绝缺少有效路径的截图证据：%j', (proof) => {
+      expect(() => parseBundleAcceptanceAnswer(bundleWithProof(proof), proofSteps, proofResults))
+        .toThrow(/steps.0.proof.*results.0.proof/);
+    },
+  );
+
   it('拒绝遗漏验收标准的最终答案', () => {
     expect(() => parseAcceptanceAnswer(
       JSON.stringify({

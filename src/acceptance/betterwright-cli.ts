@@ -33,13 +33,19 @@ const AgentResultValueSchema = z.union([
   z.string(), z.number().finite(), z.boolean(), z.null(), z.array(z.unknown()), z.record(z.unknown()),
 ]);
 
+// screenshot() returns an artifact object; keep only its validated path at the adapter boundary.
+const BundleProofSchema = z.union([
+  z.string().min(1),
+  z.object({ path: z.string().min(1) }).transform((artifact) => artifact.path),
+]).nullable().default(null);
+
 const BundleAgentAnswerSchema = z.object({
   summary: z.string().min(1),
   steps: z.array(z.object({
     id: z.string().regex(/^STEP-\d{2,}$/),
     status: z.enum(['passed', 'failed', 'blocked', 'skipped']),
     actual: z.string().min(1),
-    proof: z.string().min(1).nullable().default(null),
+    proof: BundleProofSchema,
     durationMs: z.number().int().nonnegative().optional(),
     error: z.string().min(1).nullable().default(null),
   }).strict()).min(1),
@@ -47,7 +53,7 @@ const BundleAgentAnswerSchema = z.object({
     id: z.string().regex(/^RESULT-\d{2,}$/),
     status: z.enum(['observed', 'matched', 'mismatched', 'blocked']),
     actual: AgentResultValueSchema,
-    proof: z.string().min(1).nullable().default(null),
+    proof: BundleProofSchema,
     error: z.string().min(1).nullable().default(null),
   }).strict()).min(1),
 }).strict();
@@ -574,6 +580,7 @@ export function buildAcceptancePrompt(input: {
     `5. 每条验收标准都必须得到 passed、failed 或 blocked 结论，不能遗漏。\n` +
     `6. 只根据页面真实可见状态判断，不得把 URL、猜测或未完成操作当成证明。\n` +
     `7. 对每个业务步骤完成状态和最终结果保存 proof 截图；不能执行时说明具体阻塞原因。\n` +
+    `proof 必须是截图文件路径字符串或 JSON null；screenshot() 返回对象时只取其 path 字段，不要返回整个对象、MEDIA: 标记或字符串 "null"。\n` +
     `8. equals、contains、numeric 结果只读取 actual 并返回 observed，不得自行判定是否匹配；visual、table、file 由你比较并返回 matched 或 mismatched。无法读取时返回 blocked。\n` +
     `9. 最终答案只能是 JSON，不要使用 Markdown 代码块或附加文字。结构必须为：\n` +
     `${answerShape}\n`;
