@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultConfig } from '../../src/config/defaults.js';
 import { executeAcceptance } from '../../src/acceptance/acceptance-runner.js';
 import {
+  buildAcceptancePrompt,
   parseAcceptanceAnswer,
   parseBundleAcceptanceAnswer,
   preserveProof,
@@ -13,6 +14,36 @@ import { AcceptanceHistoryStore } from '../../src/acceptance/history-store.js';
 import {
   loadAcceptanceRequirements,
 } from '../../src/acceptance/requirement-loader.js';
+
+describe('acceptance prompt', () => {
+  it('确定性断言要求原始类型，布尔观察不得复制 expected 或以对象代替', () => {
+    const prompt = buildAcceptancePrompt({
+      source: { type: 'spec', reference: 'spec.json', title: '页面验证', content: '检查页面' },
+      criteria: [], targetUrl: 'http://127.0.0.1:3000', forbiddenActions: [],
+      results: [
+        { id: 'RESULT-01', name: '公式', actual: '公式是否成立', expected: true, match: 'equals' },
+        { id: 'RESULT-02', name: '金额', actual: '总额', expected: 10, match: 'numeric' },
+        { id: 'RESULT-03', name: '标题', actual: '标题', expected: '余额', match: 'contains' },
+        { id: 'RESULT-04', name: '数量', actual: '数量', expected: 5, match: 'equals' },
+        { id: 'RESULT-05', name: '名称', actual: '名称', expected: '余额', match: 'equals' },
+        ...(['visual', 'table', 'file'] as const).map((match, index) => ({
+          id: `RESULT-0${index + 6}`, name: match, actual: '页面或文件', expected: { file: 'baseline' }, match,
+        })),
+      ],
+    });
+    for (const kind of ['boolean', 'number', 'string']) {
+      expect(prompt).toContain(`actual 必须为 JSON ${kind} 原始值`);
+    }
+    expect(prompt.match(/actual 必须为 JSON/g)).toHaveLength(5);
+    for (const id of ['RESULT-06', 'RESULT-07', 'RESULT-08']) {
+      expect(prompt.split('\n').find((line) => line.startsWith(`- ${id}`))).not.toContain('原始值');
+    }
+    expect(prompt).toContain('不能复制 expected');
+    expect(prompt).toContain('actual: true 或 actual: false');
+    expect(prompt).toContain('成功读取并返回 observed 时');
+    expect(prompt).toContain('无法读取时返回 blocked');
+  });
+});
 
 describe('acceptance requirement loader', () => {
   it('递归发现 Spec Bundle 并以 bundle 目录为文件边界', async () => {
@@ -192,6 +223,35 @@ describe('BetterWright acceptance output', () => {
 });
 
 describe('acceptance run and history', () => {
+  it.each([
+    { actual: { allRowsShowUpdateTime: true }, status: 'failed' },
+    { actual: 'true', status: 'failed' },
+    { actual: [true], status: 'failed' },
+    { actual: false, status: 'failed' },
+    { actual: true, status: 'passed' },
+  ])('equals 不强制转换布尔观察：$actual → $status', async ({ actual, status }) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-boolean-'));
+    const bundle = path.join(root, '.auto-e2e', 'specs', 'boolean');
+    await mkdir(bundle, { recursive: true });
+    await writeFile(path.join(bundle, 'spec.json'), JSON.stringify({
+      schemaVersion: 2, taskId: 'BOOLEAN-01', title: '布尔观察', requirement: '逐项核验更新时间',
+      steps: [{ id: 'STEP-01', instruction: '检查各行', expected: '每行有更新时间' }],
+      results: [{ id: 'RESULT-01', name: '更新时间', actual: '是否每行有更新时间', expected: true, match: 'equals' }],
+    }));
+    const answer = JSON.stringify({
+      summary: '完成',
+      steps: [{ id: 'STEP-01', status: 'passed', actual: '已检查各行', proof: null, error: null }],
+      results: [{ id: 'RESULT-01', status: 'observed', actual, proof: null, error: null }],
+    });
+    const envelope = JSON.stringify({ ok: true, answer, steps: 1, proof: null });
+    const fakeCli = path.join(root, 'fake-betterwright');
+    await writeFile(fakeCli, `#!/bin/sh\ncat >/dev/null\nprintf '%s' '${envelope}'\n`);
+    await chmod(fakeCli, 0o700);
+    const run = await executeAcceptance({ projectRoot: root, config: defaultConfig('demo', root), betterwrightBinary: fakeCli });
+    expect(run.status).toBe(status);
+    expect(run.resultAssertions?.[0]).toEqual(expect.objectContaining({ status, actual }));
+  });
+
   it('由运行器确定性复算 Bundle 的 numeric 结果', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'auto-e2e-bundle-numeric-'));
     const bundle = path.join(root, '.auto-e2e', 'specs', 'numeric');

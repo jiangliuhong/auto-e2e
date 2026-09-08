@@ -126,7 +126,7 @@ export function createAutoE2EServer(options: AutoE2EServerOptions): AutoE2EServe
       }
 
       if (method === 'GET' && url.pathname === '/api/status') {
-        sendJson(response, 200, { ok: true, version: '0.3.2', workspaceCount: (await registry.list()).length });
+        sendJson(response, 200, { ok: true, version: '0.3.3', workspaceCount: (await registry.list()).length });
         return;
       }
 

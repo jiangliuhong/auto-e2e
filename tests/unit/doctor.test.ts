@@ -13,6 +13,51 @@ afterEach(async () => {
 });
 
 describe('doctor tool checks', () => {
+  it.each([
+    { name: 'CDP 警告', provider: { kind: 'remote' }, downgrade: true },
+    { name: '自带本地浏览器', provider: { kind: 'local' }, providerStatus: 'ok', downgrade: true },
+    { name: '未 ready', provider: { kind: 'remote' }, ready: false, downgrade: false },
+    { name: '无结构化 provider', downgrade: false },
+    { name: 'provider 为 null', provider: null, downgrade: false },
+    { name: 'provider 配置错误', provider: { kind: 'remote' }, provider_error: 'invalid configuration', downgrade: false },
+    { name: 'Provider 失败', provider: { kind: 'remote' }, providerStatus: 'fail', downgrade: false },
+    { name: 'In use 失败', provider: { kind: 'remote' }, inUseStatus: 'fail', downgrade: false },
+    { name: 'Worker 失败', provider: { kind: 'remote' }, workerFails: true, downgrade: true },
+    { name: '模型缺失', provider: { kind: 'remote' }, modelMissing: true, downgrade: true },
+    { name: '不依赖展示文本', provider: { kind: 'remote' }, omitDisplay: true, downgrade: true },
+  ])('$name：只降级未使用的 BetterChromium', async (scenario) => {
+    const root = await temporaryRoot();
+    const providerDetail = 'remote CDP — outside the guard proxy';
+    const binary = await fakeBetterWright(root, JSON.stringify({
+      ready: scenario.ready ?? true,
+      provider: scenario.provider,
+      provider_error: scenario.provider_error ?? null,
+      checks: [
+        ...(scenario.omitDisplay ? [] : [
+          { group: 'Browser', label: 'Provider', status: scenario.providerStatus ?? 'warn', detail: providerDetail },
+          { group: 'Browser', label: 'In use', status: scenario.inUseStatus ?? 'ok', detail: 'provider:cdp' },
+        ]),
+        { group: 'Browser', label: 'BetterChromium', status: 'fail', detail: 'unsupported platform' },
+        { group: 'Runtime', label: 'Worker', status: scenario.workerFails ? 'fail' : 'ok', detail: 'worker' },
+        { group: 'Built-in agent', label: 'Model backends', status: scenario.modelMissing ? 'warn' : 'ok', detail: 'backend' },
+      ],
+    }));
+    const report = await runDoctor({ projectRoot: root, scope: 'tool', betterwrightBinary: binary });
+    expect(report.ok).toBe(scenario.downgrade && !scenario.workerFails && !scenario.modelMissing);
+    expect(report.groups.tool?.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Browser / BetterChromium', status: scenario.downgrade ? 'warn' : 'fail' }),
+      expect.objectContaining({ label: 'Runtime / Worker', status: scenario.workerFails ? 'fail' : 'pass' }),
+      expect.objectContaining({ label: 'Built-in agent / Model backends', status: scenario.modelMissing ? 'fail' : 'pass' }),
+    ]));
+    if (!scenario.omitDisplay) {
+      expect(report.groups.tool?.checks).toContainEqual(expect.objectContaining({
+        label: 'Browser / Provider',
+        status: scenario.providerStatus === 'ok' ? 'pass' : scenario.providerStatus ?? 'warn',
+        detail: providerDetail,
+      }));
+    }
+  });
+
   it('校验 BetterWright 并保留非阻塞 warning', async () => {
     const root = await temporaryRoot();
     const binary = await fakeBetterWright(root, doctorJson({
@@ -52,6 +97,8 @@ describe('doctor tool checks', () => {
   it.each([
     ['非法 JSON', 'not-json'],
     ['缺少核心字段', JSON.stringify({ ready: true })],
+    ['非法 provider', JSON.stringify({ ready: true, provider: { kind: 'unknown' }, checks: [] })],
+    ['非法 provider_error', JSON.stringify({ ready: true, provider_error: false, checks: [] })],
   ])('%s 时返回 BetterWright fail', async (_name, output) => {
     const root = await temporaryRoot();
     const binary = await fakeBetterWright(root, output);

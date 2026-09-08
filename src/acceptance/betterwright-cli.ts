@@ -70,6 +70,8 @@ export const BetterWrightDoctorCheckSchema = z.object({
 
 export const BetterWrightDoctorReportSchema = z.object({
   ready: z.boolean(),
+  provider: z.object({ kind: z.enum(['local', 'remote']) }).nullish(),
+  provider_error: z.string().nullish(),
   browser: z.string().nullish(),
   browser_selection_reason: z.string().nullish(),
   playwright_version: z.string().nullish(),
@@ -556,7 +558,10 @@ export function buildAcceptancePrompt(input: {
         const expected = typeof result.expected === 'object'
           ? `资源=${result.expected.file}${result.expected.sheet ? `，工作表=${result.expected.sheet}` : ''}`
           : JSON.stringify(result.expected);
-        return `- ${result.id} ${result.name}：读取=${result.actual}；期望=${expected}；比较=${result.match}${result.options ? `；选项=${JSON.stringify(result.options)}` : ''}`;
+        const valueType = ['equals', 'contains', 'numeric'].includes(result.match)
+          ? `；成功读取并返回 observed 时，actual 必须为 JSON ${typeof result.expected} 原始值，不得包装为对象或数组`
+          : '';
+        return `- ${result.id} ${result.name}：读取=${result.actual}；期望=${expected}；比较=${result.match}${valueType}${result.options ? `；选项=${JSON.stringify(result.options)}` : ''}`;
       }).join('\n')
     : '- 无额外结构化结果';
   const answerShape = input.workflowSteps?.length
@@ -582,6 +587,7 @@ export function buildAcceptancePrompt(input: {
     `7. 对每个业务步骤完成状态和最终结果保存 proof 截图；不能执行时说明具体阻塞原因。\n` +
     `proof 必须是截图文件路径字符串或 JSON null；screenshot() 返回对象时只取其 path 字段，不要返回整个对象、MEDIA: 标记或字符串 "null"。\n` +
     `8. equals、contains、numeric 结果只读取 actual 并返回 observed，不得自行判定是否匹配；visual、table、file 由你比较并返回 matched 或 mismatched。无法读取时返回 blocked。\n` +
+    `布尔观察（例如“是否全部满足差额公式”）必须依据页面逐项核验后返回 actual: true 或 actual: false，不能复制 expected，也不能返回包含结论字段的对象。计算过程写在步骤 actual 中并保存截图；成功读取的最终结果 actual 只保留规定类型的值。无法读取时返回 blocked，不得猜测或复制期望值。\n` +
     `9. 最终答案只能是 JSON，不要使用 Markdown 代码块或附加文字。结构必须为：\n` +
     `${answerShape}\n`;
 }
