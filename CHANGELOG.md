@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- 修复 BetterWright 已选择外部 provider 且报告 ready 时，未使用的 BetterChromium 检查误阻断；通过结构化 provider 字段判断，保留其他失败和 CDP 网络代理警告。
+- 明确确定性结果 actual 的 JSON 原始类型，要求布尔观察逐项核验，禁止复制 expected 或返回包装对象；不改变严格比较逻辑。
+- 补充 provider 状态、警告保留、模型与运行时阻断，以及布尔结果不强制转换的回归测试。
+
 ## 0.3.2
 
 - 工作区初始化生成包含完整字段说明的配置模板，并补充配置文档。

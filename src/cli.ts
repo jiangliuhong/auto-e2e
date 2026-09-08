@@ -13,7 +13,7 @@ const program = new Command();
 program
   .name('auto-e2e')
   .description('基于 BetterWright 的本地需求验收运行器')
-  .version('0.3.2')
+  .version('0.3.3')
   .option('--json', 'JSON 模式：stdout 只输出最终 JSON')
   .option('--non-interactive', '非交互模式')
   .option('--project-root <path>', '目标项目根目录', process.cwd())

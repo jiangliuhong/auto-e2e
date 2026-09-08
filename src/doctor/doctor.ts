@@ -103,6 +103,11 @@ function checkSqlite(): DoctorCheck {
 }
 
 function mapBetterWrightChecks(report: BetterWrightDoctorReport): DoctorCheck[] {
+  // BetterWright 1.10.2 的结构化 provider 表示已选择外部浏览器，不代表已实测 CDP 连通性。
+  // 若展示检查与结构化状态矛盾，保持阻断，不豁免托管浏览器失败。
+  const providerInUse = report.ready && report.provider != null && report.provider_error == null &&
+    !report.checks.some((item) => item.group === 'Browser' &&
+      (item.label === 'Provider' || item.label === 'In use') && item.status === 'fail');
   const browser = report.browser ?? 'unknown';
   const version = report.playwright_version ? `，Playwright ${report.playwright_version}` : '';
   const checks = [makeCheck(
@@ -114,6 +119,9 @@ function mapBetterWrightChecks(report: BetterWrightDoctorReport): DoctorCheck[] 
   )];
   for (const item of report.checks) {
     let status: DoctorStatus = item.status === 'ok' ? 'pass' : item.status;
+    if (providerInUse && item.group === 'Browser' && item.label === 'BetterChromium' && item.status === 'fail') {
+      status = 'warn';
+    }
     const noModelBackend = item.group === 'Built-in agent' &&
       item.label === 'Model backends' &&
       item.status !== 'ok';
